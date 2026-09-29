@@ -1,0 +1,48 @@
+# Example rehab configuration.
+#
+# Copy this file to the default location and edit to taste:
+#
+#   Linux:  ~/.config/rehab/config.toml
+#   macOS:  ~/Library/Application Support/rehab/config.toml
+#
+# Or point at it explicitly for a single run:
+#
+#   rehab -f docs/config.example.toml -s myseq ./some_dir
+#
+# Everything here is optional. With no config file, rehab uses only its
+# built-in sequences and the built-in `default` (safe -> wipeup -> unicode-clean).
+
+# ---------------------------------------------------------------------------
+# default: the sequence used when `-s/--sequence` is NOT given on the CLI.
+# Falls back to the built-in `default` sequence when this key is absent.
+# Passing `-s <name>` on the CLI always takes precedence over this.
+# ---------------------------------------------------------------------------
+default = "myseq"
+
+# ---------------------------------------------------------------------------
+# Named sequences. Each `[sequences.<name>]` table defines an ordered filter
+# chain. A sequence whose name matches a built-in (e.g. `safe`) REPLACES that
+# built-in; a new name EXTENDS the available set. Available filter names:
+#
+#   safe           replace spaces and shell-problematic characters with `_`
+#   wipeup         collapse repeated separators, trim leading/trailing ones
+#   lower          lowercase the name
+#   unicode-clean  strip Unicode control/format characters
+#   cgi-unescape   decode %XX escapes
+# ---------------------------------------------------------------------------
+
+# A custom sequence: unescape CGI codes, make safe, collapse, then lowercase.
+[sequences.myseq]
+filters = ["cgi-unescape", "safe", "wipeup", "lower"]
+
+# NOTE: `separator` and `on_collision` below are PARSED but NOT YET APPLIED.
+# For now the separator is always `_`, and the collision policy is chosen with
+# the `--on-collision` CLI flag (suffix | skip | overwrite). These keys are
+# reserved for a planned follow-up and are safe to include today.
+separator = "-"
+on_collision = "skip"
+
+# Redefine the built-in `safe` sequence to also lowercase. After this, both
+# `-s safe` and the `-L` listing reflect this chain instead of the built-in.
+[sequences.safe]
+filters = ["safe", "wipeup", "lower"]
