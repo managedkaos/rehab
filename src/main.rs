@@ -15,6 +15,7 @@ fn main() -> ExitCode {
             JournalsCommand::List => run::journals_list(),
             JournalsCommand::Prune(p) => run::journals_prune(p),
         },
+        Some(Command::Init(args)) => run::init(args),
         None => run::run(&cli.run),
     };
 

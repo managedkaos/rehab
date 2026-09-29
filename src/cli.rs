@@ -32,6 +32,9 @@ pub enum Command {
 
     /// List or prune saved rename journals.
     Journals(JournalsArgs),
+
+    /// Write a default config file to the standard location.
+    Init(InitArgs),
 }
 
 /// Arguments for the default run behavior.
@@ -131,6 +134,22 @@ pub struct JournalsPruneArgs {
     pub config: Option<PathBuf>,
 }
 
+/// Arguments for the `init` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct InitArgs {
+    /// Overwrite an existing config file.
+    #[arg(long = "force")]
+    pub force: bool,
+
+    /// Write to this path instead of the default location.
+    #[arg(short = 'f', long = "config")]
+    pub config: Option<PathBuf>,
+
+    /// Show what would be written without creating the file.
+    #[arg(short = 'n', long = "dry-run")]
+    pub dry_run: bool,
+}
+
 /// Strategy when a computed target name already exists on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OnCollision {
@@ -217,6 +236,18 @@ mod tests {
             .unwrap();
         assert!(cli.run.prune_journals);
         assert_eq!(cli.run.keep_journals, Some(5));
+    }
+
+    #[test]
+    fn parses_init_subcommand() {
+        let cli = Cli::try_parse_from(["rehab", "init", "--force", "-n"]).unwrap();
+        match cli.command {
+            Some(Command::Init(args)) => {
+                assert!(args.force);
+                assert!(args.dry_run);
+            }
+            _ => panic!("expected init subcommand"),
+        }
     }
 
     #[test]

@@ -315,3 +315,45 @@ fn auto_prune_is_opt_in() {
         .unwrap();
     assert_eq!(journal_count(home.path()), 1);
 }
+
+#[test]
+fn init_creates_default_config() {
+    let home = tempdir().unwrap();
+    // rehab_isolated sets XDG_CONFIG_HOME to $HOME/config, so the default
+    // config path resolves to $HOME/config/rehab/config.toml.
+    let cfg_path = home.path().join("config/rehab/config.toml");
+
+    // init creates the file.
+    let out = rehab_isolated(home.path()).arg("init").output().unwrap();
+    assert!(out.status.success());
+    assert!(cfg_path.exists(), "init should create the config file");
+
+    // The written config is usable: -L works and lists the built-in defaults.
+    let list = rehab_isolated(home.path()).arg("-L").output().unwrap();
+    assert!(list.status.success());
+    assert!(String::from_utf8_lossy(&list.stdout).contains("default"));
+
+    // Re-running without --force is refused.
+    let again = rehab_isolated(home.path()).arg("init").output().unwrap();
+    assert!(!again.status.success(), "init must refuse to overwrite");
+
+    // --force overwrites successfully.
+    let forced = rehab_isolated(home.path())
+        .args(["init", "--force"])
+        .output()
+        .unwrap();
+    assert!(forced.status.success());
+}
+
+#[test]
+fn init_dry_run_creates_nothing() {
+    let home = tempdir().unwrap();
+    let cfg_path = home.path().join("config/rehab/config.toml");
+    let out = rehab_isolated(home.path())
+        .args(["init", "-n"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(!cfg_path.exists(), "dry-run init must not create the file");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("would write"));
+}

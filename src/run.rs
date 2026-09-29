@@ -214,6 +214,53 @@ pub fn undo(args: &UndoArgs) -> Result<(), RunError> {
     Ok(())
 }
 
+/// The default config template, embedded at build time. Written verbatim by
+/// `rehab init`; kept in sync with `docs/config.default.toml`.
+const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../docs/config.default.toml");
+
+/// `init`: write the default config to the standard location (or `-f` path).
+///
+/// Refuses to overwrite an existing file unless `--force`. Creates parent
+/// directories as needed, then validates the written file by parsing it back.
+pub fn init(args: &crate::cli::InitArgs) -> Result<(), RunError> {
+    let path = match &args.config {
+        Some(p) => p.clone(),
+        None => crate::config::default_config_path().ok_or_else(|| {
+            RunError::Config("could not determine the default config location".into())
+        })?,
+    };
+
+    if args.dry_run {
+        println!("would write default config to {}", path.display());
+        println!("---");
+        print!("{DEFAULT_CONFIG_TEMPLATE}");
+        return Ok(());
+    }
+
+    if path.exists() && !args.force {
+        return Err(RunError::Config(format!(
+            "config already exists at {} (use --force to overwrite)",
+            path.display()
+        )));
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, DEFAULT_CONFIG_TEMPLATE)?;
+
+    // Validate what we just wrote by parsing it back.
+    Config::from_path(&path).map_err(|e| {
+        RunError::Config(format!(
+            "wrote {} but it failed to parse: {e}",
+            path.display()
+        ))
+    })?;
+
+    println!("wrote default config to {}", path.display());
+    Ok(())
+}
+
 /// `journals list`: print saved journals, newest first.
 pub fn journals_list() -> Result<(), RunError> {
     let dir = journal::journal_dir()
@@ -300,6 +347,65 @@ mod tests {
     use crate::sequence;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn embedded_default_template_parses_and_matches_builtins() {
+        let cfg = Config::from_toml_str(DEFAULT_CONFIG_TEMPLATE).unwrap();
+        // The template should represent the built-in default behavior.
+        assert_eq!(cfg.default_sequence_name(), "default");
+        assert_eq!(
+            cfg.resolve_default().unwrap().filter_names(),
+            vec!["safe", "wipeup", "unicode-clean"]
+        );
+        assert_eq!(cfg.journal_keep(), 20);
+        assert!(!cfg.journal.auto_prune);
+    }
+
+    #[test]
+    fn init_writes_and_refuses_overwrite() {
+        use crate::cli::InitArgs;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("sub/config.toml");
+
+        // First write creates the file (and parent dir) and validates.
+        let args = InitArgs {
+            force: false,
+            config: Some(path.clone()),
+            dry_run: false,
+        };
+        init(&args).unwrap();
+        assert!(path.exists());
+        // Written file parses as the built-in default config.
+        assert_eq!(
+            Config::from_path(&path).unwrap().default_sequence_name(),
+            "default"
+        );
+
+        // Second write without --force is refused.
+        assert!(init(&args).is_err());
+
+        // With --force it succeeds.
+        let forced = InitArgs {
+            force: true,
+            config: Some(path.clone()),
+            dry_run: false,
+        };
+        init(&forced).unwrap();
+    }
+
+    #[test]
+    fn init_dry_run_writes_nothing() {
+        use crate::cli::InitArgs;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let args = InitArgs {
+            force: false,
+            config: Some(path.clone()),
+            dry_run: true,
+        };
+        init(&args).unwrap();
+        assert!(!path.exists(), "dry-run must not create the file");
+    }
 
     #[test]
     fn cleaned_basename_uses_sequence() {

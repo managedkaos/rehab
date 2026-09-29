@@ -95,6 +95,23 @@ cp docs/config.example.toml ~/.config/rehab/config.toml
 rehab -f docs/config.example.toml -L
 ```
 
+### Creating a config
+
+`rehab init` writes a commented config representing the built-in defaults to the
+standard location, so you have an easy starting point to edit:
+
+```bash
+rehab init                 # write ~/.config/rehab/config.toml (refuses if it exists)
+rehab init --force         # overwrite an existing config
+rehab init -f ./my.toml    # write to a specific path
+rehab init -n              # dry-run: print the path and content, write nothing
+```
+
+The generated file mirrors rehab's defaults, so with it in place rehab behaves
+exactly as it does with no config. It refuses to overwrite an existing file
+unless `--force` is given, and the written file is validated before `init`
+reports success.
+
 ## Undo
 
 Every non-dry-run writes a timestamped JSONL journal to the state directory
