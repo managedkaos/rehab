@@ -268,14 +268,18 @@ pub fn is_journal_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// List journals in `dir`, newest first (by mtime, then path desc). Empty if
-/// the directory does not exist or cannot be read.
-pub fn list_journals(dir: &Path) -> Vec<JournalInfo> {
+/// Enumerate journal files in `dir` as `(path, mtime)`, newest first (by mtime,
+/// then path desc). Empty if the directory does not exist or cannot be read.
+///
+/// This is the lightweight primitive used for ordering and selection: it does
+/// **not** read or parse journal contents, so it is cheap even with many large
+/// journals. Record counts are added only by [`list_journals`] for display.
+pub fn journal_paths_by_recency(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
     let read = match fs::read_dir(dir) {
         Ok(r) => r,
         Err(_) => return Vec::new(),
     };
-    let mut journals: Vec<JournalInfo> = read
+    let mut entries: Vec<(PathBuf, SystemTime)> = read
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| is_journal_file(p))
@@ -283,6 +287,23 @@ pub fn list_journals(dir: &Path) -> Vec<JournalInfo> {
             let modified = fs::metadata(&path)
                 .and_then(|m| m.modified())
                 .unwrap_or(UNIX_EPOCH);
+            (path, modified)
+        })
+        .collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
+    entries
+}
+
+/// List journals in `dir`, newest first (by mtime, then path desc). Empty if
+/// the directory does not exist or cannot be read.
+///
+/// This reads and parses each journal to populate its record count, so it is
+/// intended for display (`journals list`). For ordering/selection that does not
+/// need counts (e.g. pruning), use the internal `journal_paths_by_recency`.
+pub fn list_journals(dir: &Path) -> Vec<JournalInfo> {
+    journal_paths_by_recency(dir)
+        .into_iter()
+        .map(|(path, modified)| {
             let records = read_journal(&path).map(|r| r.len()).unwrap_or(0);
             JournalInfo {
                 path,
@@ -290,31 +311,29 @@ pub fn list_journals(dir: &Path) -> Vec<JournalInfo> {
                 records,
             }
         })
-        .collect();
-    journals.sort_by(|a, b| {
-        b.modified
-            .cmp(&a.modified)
-            .then_with(|| b.path.cmp(&a.path))
-    });
-    journals
+        .collect()
 }
 
 /// Delete all but the `keep` newest journals in `dir`, returning removed paths.
 /// `keep == 0` means unlimited (nothing pruned). Attempts all deletions and
 /// returns the first error (if any) after trying the rest.
+///
+/// Uses the lightweight `journal_paths_by_recency` enumeration, so it never
+/// reads or parses journal contents — important for the opt-in auto-prune that
+/// runs after every qualifying run.
 pub fn prune_journals(dir: &Path, keep: usize) -> std::io::Result<Vec<PathBuf>> {
     if keep == 0 {
         return Ok(Vec::new());
     }
-    let journals = list_journals(dir);
+    let journals = journal_paths_by_recency(dir);
     if journals.len() <= keep {
         return Ok(Vec::new());
     }
     let mut removed = Vec::new();
     let mut first_err: Option<std::io::Error> = None;
-    for info in journals.into_iter().skip(keep) {
-        match fs::remove_file(&info.path) {
-            Ok(()) => removed.push(info.path),
+    for (path, _) in journals.into_iter().skip(keep) {
+        match fs::remove_file(&path) {
+            Ok(()) => removed.push(path),
             Err(e) => {
                 if first_err.is_none() {
                     first_err = Some(e);
@@ -372,6 +391,30 @@ mod tests {
         assert_eq!(left.len(), 2);
         assert!(left[0].path.ends_with("journal-4.jsonl"));
         assert!(left[1].path.ends_with("journal-3.jsonl"));
+    }
+
+    #[test]
+    fn journal_paths_by_recency_orders_without_parsing() {
+        use std::io::Write;
+        use std::thread::sleep;
+        use std::time::Duration;
+        let dir = tempdir().unwrap();
+        // Write journals with unparseable content: the recency enumeration must
+        // not depend on being able to read/parse the files.
+        for i in 0..3 {
+            let mut f = File::create(dir.path().join(journal_file_name(i))).unwrap();
+            writeln!(f, "this is not valid json").unwrap();
+            sleep(Duration::from_millis(10));
+        }
+        let paths = journal_paths_by_recency(dir.path());
+        assert_eq!(paths.len(), 3);
+        // Newest (journal-2) first, oldest last.
+        assert!(paths[0].0.ends_with("journal-2.jsonl"));
+        assert!(paths[2].0.ends_with("journal-0.jsonl"));
+        // Prune still works on unparseable journals (uses mtime only).
+        let removed = prune_journals(dir.path(), 1).unwrap();
+        assert_eq!(removed.len(), 2);
+        assert_eq!(journal_paths_by_recency(dir.path()).len(), 1);
     }
 
     #[test]

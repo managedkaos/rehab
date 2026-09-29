@@ -285,7 +285,7 @@ pub fn journals_prune(args: &crate::cli::JournalsPruneArgs) -> Result<(), RunErr
         .ok_or_else(|| RunError::Config("no state directory for journals".into()))?;
 
     if args.dry_run {
-        let journals = journal::list_journals(&dir);
+        let journals = journal::journal_paths_by_recency(&dir);
         let to_remove: Vec<_> = if keep == 0 {
             Vec::new()
         } else {
@@ -294,8 +294,8 @@ pub fn journals_prune(args: &crate::cli::JournalsPruneArgs) -> Result<(), RunErr
         if to_remove.is_empty() {
             println!("nothing to prune (keep = {keep})");
         } else {
-            for info in &to_remove {
-                println!("would remove: {}", info.path.display());
+            for (path, _) in &to_remove {
+                println!("would remove: {}", path.display());
             }
         }
         return Ok(());
