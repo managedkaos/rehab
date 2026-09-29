@@ -162,3 +162,44 @@ make fmt      # format in place
 
 The design and task breakdown live in
 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+
+## Man pages
+
+rehab ships two man pages:
+
+- **`rehab(1)`** — command usage, options, and subcommands. Generated from the
+  CLI definition, so it always matches the actual flags.
+- **`rehab-config(5)`** — the TOML configuration file format (hand-written).
+
+Both cross-reference each other and the standard encoding references
+`ascii(7)`, `iso_8859-1(7)`, `unicode(7)`, and `utf-8(7)`.
+
+Generate and install them with:
+
+```bash
+make man                 # regenerate man/rehab.1 (rehab-config.5 is hand-written)
+make install-man         # install into $(PREFIX)/share/man/man{1,5}
+make uninstall-man       # remove them
+```
+
+`make install` runs `install-man` automatically (and `make uninstall` runs
+`uninstall-man`). After installing, view them with:
+
+```bash
+man rehab
+man rehab-config
+```
+
+If the pages aren't found, ensure the man directory (default
+`~/.local/share/man`) is on your `MANPATH`. The generated `man/rehab.1` is not
+checked into git; run `make man` to (re)create it. You can also preview a page
+without installing:
+
+```bash
+make man && man ./man/rehab.1
+man ./man/rehab-config.5
+```
+
+> The four `(7)` reference pages are standard Linux man-pages entries; rehab
+> only cross-references them and does not ship copies. They may not be present
+> by default on macOS.

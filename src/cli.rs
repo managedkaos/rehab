@@ -10,7 +10,19 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 /// rehab — clean up filenames by replacing problematic characters.
 #[derive(Debug, Parser)]
-#[command(name = "rehab", version, about, long_about = None, disable_version_flag = true)]
+#[command(
+    name = "rehab",
+    version,
+    about = "Clean up filenames by replacing problematic characters with safe alternatives.",
+    long_about = "rehab renames files and directories to replace problematic characters \
+(spaces, shell metacharacters, control characters, CGI escapes) with safe, \
+easy-to-type alternatives. Filters are composable, sequences are configurable, \
+traversal is parallel, and every run is journaled so it can be undone.\n\n\
+When invoked with no subcommand, rehab cleans the given paths. Naming a \
+directory without --recursive processes its immediate, non-hidden contents \
+(one level, no descent); use --recursive to descend into subdirectories.",
+    disable_version_flag = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
