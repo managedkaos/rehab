@@ -1,7 +1,7 @@
 CARGO ?= cargo
 
 # Installation location (macOS). Override with e.g. `make install BINDIR=/usr/local/bin`.
-# ~/.local/bin is user-writable and needs no sudo; add it to PATH if it isn't already.
+# ~/.local/bin is user-writable and needs no sudo; add it to PATH if needed.
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BIN_NAME := rehab

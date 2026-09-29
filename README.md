@@ -27,9 +27,9 @@ rehab -L                             # list available sequences
 
 | Flag | Description |
 |------|-------------|
-| `-n`, `--dry-run` | Show planned changes without modifying the filesystem (implies verbose). |
+| `-n`, `--dry-run` | Show the planned renames without modifying the filesystem. Skipped files (unchanged names, or collisions under `--on-collision skip`) are not listed unless `-v` is also given. |
 | `-r`, `--recursive` | Recurse into subdirectories (traversal roots that are directories are descended, not renamed; hidden `.` entries are skipped). |
-| `-v`, `--verbose` | Report each rename as it happens. |
+| `-v`, `--verbose` | Report each rename as it happens, and also report files that are skipped. |
 | `-s`, `--sequence <NAME>` | Use a named sequence instead of the default. |
 | `-j`, `--jobs <N>` | Number of worker threads (default: available parallelism). |
 | `--on-collision <POLICY>` | `suffix` (default), `skip`, or `overwrite` when the target name already exists. |

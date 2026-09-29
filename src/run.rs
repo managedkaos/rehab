@@ -77,7 +77,12 @@ pub fn run(args: &RunArgs) -> Result<(), RunError> {
     };
 
     let dry_run = args.dry_run;
+    // Renames (and the dry-run plan) are reported when dry-run or verbose.
     let verbose = args.verbose || dry_run;
+    // Skipped files (unchanged names, or collisions under --on-collision skip)
+    // are noisy, so they are only reported when the user explicitly asks for
+    // verbose output — not merely because this is a dry run.
+    let report_skips = args.verbose;
 
     // Configure the rayon pool if a job count was requested.
     if let Some(jobs) = args.jobs {
@@ -116,7 +121,7 @@ pub fn run(args: &RunArgs) -> Result<(), RunError> {
         let plan = match rename::plan_rename(path, cleaned, args.on_collision) {
             Some(p) => p,
             None => {
-                if verbose {
+                if report_skips {
                     println!("skip: {}", path.display());
                 }
                 continue;

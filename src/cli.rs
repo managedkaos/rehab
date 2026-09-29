@@ -34,7 +34,8 @@ pub enum Command {
 /// Arguments for the default run behavior.
 #[derive(Debug, clap::Args)]
 pub struct RunArgs {
-    /// Show planned changes without modifying the filesystem (implies verbose).
+    /// Show the planned renames without modifying the filesystem. Skipped
+    /// files are not listed unless `-v` is also given.
     #[arg(short = 'n', long = "dry-run")]
     pub dry_run: bool,
 
@@ -42,7 +43,7 @@ pub struct RunArgs {
     #[arg(short = 'r', long = "recursive")]
     pub recursive: bool,
 
-    /// Report each rename as it happens.
+    /// Report each rename as it happens, and also report skipped files.
     #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
 

@@ -94,6 +94,42 @@ fn errors_without_paths() {
 }
 
 #[test]
+fn dry_run_hides_skips_unless_verbose() {
+    let dir = tempdir().unwrap();
+    // One file needs cleaning, one is already clean (will be skipped).
+    fs::write(dir.path().join("bad name.txt"), b"x").unwrap();
+    fs::write(dir.path().join("clean.txt"), b"x").unwrap();
+
+    // Dry-run without -v: the plan lists the rename but NOT the skip.
+    let out = rehab()
+        .args(["-n", "-s", "safe"])
+        .arg(dir.path())
+        .output()
+        .expect("run rehab");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("bad_name.txt"), "rename should be reported");
+    assert!(
+        !stdout.contains("skip:"),
+        "skips must be hidden without --verbose, got:\n{stdout}"
+    );
+
+    // Dry-run WITH -v: the skip is reported too.
+    let out_v = rehab()
+        .args(["-n", "-v", "-s", "safe"])
+        .arg(dir.path())
+        .output()
+        .expect("run rehab");
+    assert!(out_v.status.success());
+    let stdout_v = String::from_utf8_lossy(&out_v.stdout);
+    assert!(stdout_v.contains("skip:"), "verbose should report skips");
+    assert!(
+        stdout_v.contains("clean.txt"),
+        "the skipped file should be named under verbose"
+    );
+}
+
+#[test]
 fn non_recursive_directory_arg_cleans_immediate_contents() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("bad name.txt"), b"x").unwrap();
