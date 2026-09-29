@@ -2,8 +2,9 @@
 #
 # Copy this file to the default location and edit to taste:
 #
-#   Linux:  ~/.config/rehab/config.toml
-#   macOS:  ~/Library/Application Support/rehab/config.toml
+#   Linux & macOS:  ~/.config/rehab/config.toml
+#
+# (Set XDG_CONFIG_HOME to override the ~/.config base directory.)
 #
 # Or point at it explicitly for a single run:
 #

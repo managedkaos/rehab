@@ -17,7 +17,8 @@
 //! Resolution order (highest priority first):
 //!
 //! 1. An explicit path (`--config/-f`).
-//! 2. `~/.config/rehab/config.toml` (via [`dirs::config_dir`]).
+//! 2. `~/.config/rehab/config.toml` (same location on Linux and macOS;
+//!    `XDG_CONFIG_HOME` overrides the base directory).
 //! 3. Built-in sequences only (no file).
 //!
 //! Config-defined sequences merge *over* built-ins: a config sequence with the
@@ -173,9 +174,19 @@ impl Config {
     }
 }
 
-/// The default user config path: `~/.config/rehab/config.toml`.
+/// The default user config path: `~/.config/rehab/config.toml` on both Linux
+/// and macOS.
+///
+/// Unlike [`dirs::config_dir`] (which resolves to
+/// `~/Library/Application Support` on macOS), rehab uses the XDG-style
+/// `~/.config` location on every platform so the config lives in the same place
+/// everywhere. `XDG_CONFIG_HOME`, when set, overrides the base directory.
 pub fn default_config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("rehab").join("config.toml"))
+    let base = match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(v) if !v.is_empty() => PathBuf::from(v),
+        _ => dirs::home_dir()?.join(".config"),
+    };
+    Some(base.join("rehab").join("config.toml"))
 }
 
 #[cfg(test)]
@@ -323,6 +334,23 @@ mod tests {
     fn default_config_path_ends_with_expected_suffix() {
         if let Some(p) = default_config_path() {
             assert!(p.ends_with("rehab/config.toml"));
+        }
+    }
+
+    #[test]
+    fn default_config_path_honors_xdg_config_home() {
+        // SAFETY: single-threaded within this test; we set and restore the var.
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg-test");
+        }
+        let p = default_config_path().unwrap();
+        assert_eq!(p, PathBuf::from("/tmp/xdg-test/rehab/config.toml"));
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
         }
     }
 }

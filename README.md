@@ -88,9 +88,7 @@ A complete, commented example lives at
 location for your platform, or point at it directly for a single run:
 
 ```bash
-# macOS
-cp docs/config.example.toml ~/Library/Application\ Support/rehab/config.toml
-# Linux
+# Linux & macOS
 cp docs/config.example.toml ~/.config/rehab/config.toml
 
 # Or use it for one run without installing it:
