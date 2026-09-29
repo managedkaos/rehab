@@ -31,22 +31,22 @@ clippy: ## Run Clippy, treating warnings as errors
 	$(CARGO) clippy --all-targets --all-features -- -D warnings
 
 compile: ## Compile the application
-	$(CARGO) build
+	$(CARGO) build --bin rehab
 
 build: compile ## Alias for compile
 
 release: ## Compile with optimizations
-	$(CARGO) build --release
+	$(CARGO) build --release --bin rehab
 
 man: ## Generate man/rehab.1 from the CLI definition (rehab-config.5 is hand-written)
-	$(CARGO) run --quiet --bin gen-man -- man
+	$(CARGO) run --quiet --features gen-man --bin gen-man -- man
 	@echo "Generated $(MAN1_PAGE) (hand-written: $(MAN5_PAGE))"
 
-test: ## Run the test suite
-	$(CARGO) test --all-targets
+test: ## Run the test suite (includes the man-page generator via --all-features)
+	$(CARGO) test --all-targets --all-features
 
 check: ## Type-check without producing binaries
-	$(CARGO) check --all-targets
+	$(CARGO) check --all-targets --all-features
 
 clean: ## Remove build artifacts
 	$(CARGO) clean

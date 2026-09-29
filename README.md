@@ -182,6 +182,14 @@ make install-man         # install into $(PREFIX)/share/man/man{1,5}
 make uninstall-man       # remove them
 ```
 
+The generator lives behind an opt-in `gen-man` Cargo feature so normal builds
+and `cargo install` don't compile the documentation tooling. `make man` enables
+it for you; to run it directly:
+
+```bash
+cargo run --features gen-man --bin gen-man -- man
+```
+
 `make install` runs `install-man` automatically (and `make uninstall` runs
 `uninstall-man`). After installing, view them with:
 
