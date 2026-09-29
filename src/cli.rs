@@ -29,6 +29,12 @@ pub struct Cli {
 pub enum Command {
     /// Reverse a previous run using its journal.
     Undo(UndoArgs),
+
+    /// List or prune saved rename journals.
+    Journals(JournalsArgs),
+
+    /// Write a default config file to the standard location.
+    Init(InitArgs),
 }
 
 /// Arguments for the default run behavior.
@@ -67,6 +73,14 @@ pub struct RunArgs {
     #[arg(short = 'L', long = "list-sequences")]
     pub list_sequences: bool,
 
+    /// Keep only the N most recent journals (0 = unlimited). Overrides config.
+    #[arg(long = "keep-journals")]
+    pub keep_journals: Option<usize>,
+
+    /// Prune old journals after this run (opt-in). Uses --keep-journals or config keep.
+    #[arg(long = "prune-journals")]
+    pub prune_journals: bool,
+
     /// Files or directories to process.
     pub paths: Vec<PathBuf>,
 }
@@ -85,6 +99,55 @@ pub struct UndoArgs {
     /// Report each reversal as it happens.
     #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
+}
+
+/// Arguments for the `journals` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct JournalsArgs {
+    #[command(subcommand)]
+    pub command: JournalsCommand,
+}
+
+/// `journals` operations.
+#[derive(Debug, Subcommand)]
+pub enum JournalsCommand {
+    /// List saved journals (newest first).
+    List,
+    /// Delete all but the newest N journals.
+    Prune(JournalsPruneArgs),
+}
+
+/// Arguments for `journals prune`.
+#[derive(Debug, clap::Args)]
+pub struct JournalsPruneArgs {
+    /// Number of journals to keep (default: config value or 20).
+    #[arg(long = "keep")]
+    pub keep: Option<usize>,
+    /// Show what would be removed without deleting.
+    #[arg(short = 'n', long = "dry-run")]
+    pub dry_run: bool,
+    /// Report each removed journal.
+    #[arg(short = 'v', long = "verbose")]
+    pub verbose: bool,
+    /// Use this config file instead of the default discovery.
+    #[arg(short = 'f', long = "config")]
+    pub config: Option<PathBuf>,
+}
+
+/// Arguments for the `init` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct InitArgs {
+    /// Overwrite an existing config file.
+    #[arg(long = "force")]
+    pub force: bool,
+
+    /// Write to this path instead of the default location.
+    #[arg(short = 'f', long = "config")]
+    pub config: Option<PathBuf>,
+
+    /// Show what would be written without creating the file.
+    #[arg(short = 'n', long = "dry-run")]
+    pub dry_run: bool,
 }
 
 /// Strategy when a computed target name already exists on disk.
@@ -144,6 +207,46 @@ mod tests {
         match cli.command {
             Some(Command::Undo(args)) => assert!(args.dry_run),
             _ => panic!("expected undo subcommand"),
+        }
+    }
+
+    #[test]
+    fn parses_journals_list_and_prune() {
+        let list = Cli::try_parse_from(["rehab", "journals", "list"]).unwrap();
+        match list.command {
+            Some(Command::Journals(j)) => {
+                assert!(matches!(j.command, JournalsCommand::List))
+            }
+            _ => panic!("expected journals list"),
+        }
+
+        let prune = Cli::try_parse_from(["rehab", "journals", "prune", "--keep", "3"]).unwrap();
+        match prune.command {
+            Some(Command::Journals(j)) => match j.command {
+                JournalsCommand::Prune(p) => assert_eq!(p.keep, Some(3)),
+                _ => panic!("expected prune"),
+            },
+            _ => panic!("expected journals prune"),
+        }
+    }
+
+    #[test]
+    fn parses_keep_and_prune_journal_flags() {
+        let cli = Cli::try_parse_from(["rehab", "--prune-journals", "--keep-journals", "5", "f"])
+            .unwrap();
+        assert!(cli.run.prune_journals);
+        assert_eq!(cli.run.keep_journals, Some(5));
+    }
+
+    #[test]
+    fn parses_init_subcommand() {
+        let cli = Cli::try_parse_from(["rehab", "init", "--force", "-n"]).unwrap();
+        match cli.command {
+            Some(Command::Init(args)) => {
+                assert!(args.force);
+                assert!(args.dry_run);
+            }
+            _ => panic!("expected init subcommand"),
         }
     }
 
