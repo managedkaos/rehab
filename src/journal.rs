@@ -1,0 +1,283 @@
+//! Per-run rename journal in JSON Lines (JSONL) format.
+//!
+//! Each `run` writes a timestamped journal file (one per invocation) under the
+//! platform state directory (`~/.local/state/rehab/journal-<ts>.jsonl` on
+//! Linux, via [`dirs::state_dir`], falling back to the data-local dir). Every
+//! rename appends one [`Record`] as a single line of JSON.
+//!
+//! The [`JournalWriter`] wraps its file handle in a [`Mutex`] so it can be
+//! shared across a rayon thread pool and appended to concurrently; each line is
+//! written atomically under the lock and flushed, so a crash mid-run still
+//! leaves a valid prefix of complete records. [`read_journal`] reads the
+//! records back in the order they were written.
+
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+
+/// A single rename event: the original path, the new path, and a timestamp
+/// (milliseconds since the Unix epoch) when the record was created.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Record {
+    /// The path before renaming.
+    pub from: String,
+    /// The path after renaming.
+    pub to: String,
+    /// Milliseconds since the Unix epoch.
+    pub ts: u64,
+}
+
+impl Record {
+    /// Create a record stamped with the current time.
+    pub fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
+        Self {
+            from: from.into(),
+            to: to.into(),
+            ts: now_millis(),
+        }
+    }
+
+    /// Create a record with an explicit timestamp (useful for tests).
+    pub fn with_ts(from: impl Into<String>, to: impl Into<String>, ts: u64) -> Self {
+        Self {
+            from: from.into(),
+            to: to.into(),
+            ts,
+        }
+    }
+}
+
+/// Milliseconds since the Unix epoch. Saturates to 0 if the clock is before the
+/// epoch (which should not happen in practice).
+pub fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A synchronized, append-only JSONL journal writer.
+///
+/// Cloneable handles are not provided; share a single writer behind an `Arc`
+/// when using it across rayon tasks:
+///
+/// ```no_run
+/// use std::sync::Arc;
+/// use rehab::journal::{JournalWriter, Record};
+/// let writer = Arc::new(JournalWriter::create("/tmp/journal.jsonl").unwrap());
+/// // in parallel tasks:
+/// writer.append(&Record::new("a", "b")).unwrap();
+/// ```
+pub struct JournalWriter {
+    path: PathBuf,
+    file: Mutex<File>,
+}
+
+impl JournalWriter {
+    /// Create (or truncate) a journal file at `path`, creating parent
+    /// directories as needed.
+    pub fn create(path: impl AsRef<Path>) -> std::io::Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)?;
+        Ok(Self {
+            path,
+            file: Mutex::new(file),
+        })
+    }
+
+    /// Open a new timestamped journal in the default state directory and return
+    /// the writer. The file name is `journal-<ts>.jsonl`.
+    pub fn create_in_state_dir() -> std::io::Result<Self> {
+        let dir = journal_dir().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "could not determine a state directory for the journal",
+            )
+        })?;
+        Self::create(dir.join(journal_file_name(now_millis())))
+    }
+
+    /// The path this journal writes to.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Append one record as a single JSON line, then flush.
+    ///
+    /// The lock is held for the whole serialize + write + flush so records from
+    /// concurrent rayon tasks never interleave within a line.
+    pub fn append(&self, record: &Record) -> std::io::Result<()> {
+        let line = serde_json::to_string(record)?;
+        let mut file = self
+            .file
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        file.write_all(line.as_bytes())?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+        Ok(())
+    }
+}
+
+/// Read all records from a journal file, in written order. Blank lines are
+/// skipped; a malformed line produces an error.
+pub fn read_journal(path: impl AsRef<Path>) -> std::io::Result<Vec<Record>> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut records = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: Record = serde_json::from_str(&line)?;
+        records.push(record);
+    }
+    Ok(records)
+}
+
+/// The directory where journals are stored: the platform state directory (or
+/// data-local dir as a fallback) joined with `rehab`.
+pub fn journal_dir() -> Option<PathBuf> {
+    dirs::state_dir()
+        .or_else(dirs::data_local_dir)
+        .map(|d| d.join("rehab"))
+}
+
+/// The file name for a journal stamped at `ts` (ms since epoch).
+pub fn journal_file_name(ts: u64) -> String {
+    format!("journal-{ts}.jsonl")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    #[test]
+    fn record_roundtrips_through_json() {
+        let r = Record::with_ts("a b.txt", "a_b.txt", 123);
+        let s = serde_json::to_string(&r).unwrap();
+        assert!(s.contains("\"from\":\"a b.txt\""));
+        assert!(s.contains("\"to\":\"a_b.txt\""));
+        assert!(s.contains("\"ts\":123"));
+        let back: Record = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, r);
+    }
+
+    #[test]
+    fn append_then_read_preserves_order() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        let writer = JournalWriter::create(&path).unwrap();
+        for i in 0..5 {
+            writer
+                .append(&Record::with_ts(format!("from{i}"), format!("to{i}"), i))
+                .unwrap();
+        }
+        let records = read_journal(&path).unwrap();
+        assert_eq!(records.len(), 5);
+        for (i, r) in records.iter().enumerate() {
+            assert_eq!(r.from, format!("from{i}"));
+            assert_eq!(r.to, format!("to{i}"));
+        }
+    }
+
+    #[test]
+    fn creates_parent_directories() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nested/sub/journal.jsonl");
+        let writer = JournalWriter::create(&path).unwrap();
+        writer.append(&Record::with_ts("a", "b", 1)).unwrap();
+        assert!(path.exists());
+        assert_eq!(read_journal(&path).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn concurrent_appends_under_rayon_all_captured() {
+        use rayon::prelude::*;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        let writer = Arc::new(JournalWriter::create(&path).unwrap());
+
+        let n = 1000;
+        (0..n).into_par_iter().for_each(|i| {
+            writer
+                .append(&Record::with_ts(format!("from{i}"), format!("to{i}"), i))
+                .unwrap();
+        });
+
+        let records = read_journal(&path).unwrap();
+        // Every append is captured and every line is well-formed (no
+        // interleaving corrupted the JSON).
+        assert_eq!(records.len() as u64, n);
+
+        // The set of "from" fields matches exactly (order is not guaranteed
+        // under parallelism, but completeness is).
+        let mut froms: Vec<String> = records.into_iter().map(|r| r.from).collect();
+        froms.sort();
+        let mut expected: Vec<String> = (0..n).map(|i| format!("from{i}")).collect();
+        expected.sort();
+        assert_eq!(froms, expected);
+    }
+
+    #[test]
+    fn empty_lines_are_skipped_by_reader() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        {
+            let mut f = File::create(&path).unwrap();
+            writeln!(
+                f,
+                "{}",
+                serde_json::to_string(&Record::with_ts("a", "b", 1)).unwrap()
+            )
+            .unwrap();
+            writeln!(f).unwrap(); // blank line
+            writeln!(
+                f,
+                "{}",
+                serde_json::to_string(&Record::with_ts("c", "d", 2)).unwrap()
+            )
+            .unwrap();
+        }
+        let records = read_journal(&path).unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].from, "a");
+        assert_eq!(records[1].from, "c");
+    }
+
+    #[test]
+    fn malformed_line_errors() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        {
+            let mut f = File::create(&path).unwrap();
+            writeln!(f, "not json at all").unwrap();
+        }
+        assert!(read_journal(&path).is_err());
+    }
+
+    #[test]
+    fn journal_file_name_format() {
+        assert_eq!(journal_file_name(42), "journal-42.jsonl");
+    }
+
+    #[test]
+    fn now_millis_is_nonzero() {
+        assert!(now_millis() > 0);
+    }
+}
