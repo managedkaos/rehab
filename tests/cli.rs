@@ -289,6 +289,53 @@ fn journals_list_and_prune() {
 }
 
 #[test]
+fn journals_prune_dry_run_deletes_nothing() {
+    let home = tempdir().unwrap();
+    let work = tempdir().unwrap();
+    for name in ["a one.txt", "b two.txt", "c three.txt"] {
+        let f = work.path().join(name);
+        std::fs::write(&f, b"x").unwrap();
+        rehab_isolated(home.path())
+            .args(["-s", "safe"])
+            .arg(&f)
+            .output()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(journal_count(home.path()), 3);
+
+    // Dry-run prune --keep 1: previews the 2 oldest, deletes nothing.
+    let out = rehab_isolated(home.path())
+        .args(["journals", "prune", "-n", "--keep", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        stdout.matches("would remove:").count(),
+        2,
+        "dry-run should preview the two oldest journals, got:\n{stdout}"
+    );
+    assert_eq!(
+        journal_count(home.path()),
+        3,
+        "dry-run must not delete any journals"
+    );
+
+    // keep = 0 means unlimited: nothing to prune, nothing removed.
+    let unlimited = rehab_isolated(home.path())
+        .args(["journals", "prune", "-n", "--keep", "0"])
+        .output()
+        .unwrap();
+    assert!(unlimited.status.success());
+    assert!(
+        String::from_utf8_lossy(&unlimited.stdout).contains("nothing to prune"),
+        "keep = 0 should report nothing to prune"
+    );
+    assert_eq!(journal_count(home.path()), 3);
+}
+
+#[test]
 fn auto_prune_is_opt_in() {
     let home = tempdir().unwrap();
     let work = tempdir().unwrap();
