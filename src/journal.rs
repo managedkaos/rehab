@@ -274,7 +274,10 @@ pub fn is_journal_file(path: &Path) -> bool {
 /// This is the lightweight primitive used for ordering and selection: it does
 /// **not** read or parse journal contents, so it is cheap even with many large
 /// journals. Record counts are added only by [`list_journals`] for display.
-pub fn journal_paths_by_recency(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
+///
+/// Crate-internal (`pub(crate)`): used by [`list_journals`], [`prune_journals`],
+/// and the `journals prune` dry-run, but not part of the public library API.
+pub(crate) fn journal_paths_by_recency(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
     let read = match fs::read_dir(dir) {
         Ok(r) => r,
         Err(_) => return Vec::new(),
@@ -299,7 +302,8 @@ pub fn journal_paths_by_recency(dir: &Path) -> Vec<(PathBuf, SystemTime)> {
 ///
 /// This reads and parses each journal to populate its record count, so it is
 /// intended for display (`journals list`). For ordering/selection that does not
-/// need counts (e.g. pruning), use the internal `journal_paths_by_recency`.
+/// need counts (e.g. pruning), use the crate-internal
+/// [`journal_paths_by_recency`].
 pub fn list_journals(dir: &Path) -> Vec<JournalInfo> {
     journal_paths_by_recency(dir)
         .into_iter()
