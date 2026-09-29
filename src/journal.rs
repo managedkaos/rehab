@@ -1,9 +1,9 @@
 //! Per-run rename journal in JSON Lines (JSONL) format.
 //!
 //! Each `run` writes a timestamped journal file (one per invocation) under the
-//! platform state directory (`~/.local/state/rehab/journal-<ts>.jsonl` on
-//! Linux, via [`dirs::state_dir`], falling back to the data-local dir). Every
-//! rename appends one [`Record`] as a single line of JSON.
+//! state directory (`~/.local/state/rehab/journal-<ts>.jsonl` on both Linux and
+//! macOS; `XDG_STATE_HOME` overrides the base directory). Every rename appends
+//! one [`Record`] as a single line of JSON.
 //!
 //! The [`JournalWriter`] wraps its file handle in a [`Mutex`] so it can be
 //! shared across a rayon thread pool and appended to concurrently; each line is
@@ -226,12 +226,19 @@ pub fn read_journal(path: impl AsRef<Path>) -> std::io::Result<Vec<Record>> {
     Ok(records)
 }
 
-/// The directory where journals are stored: the platform state directory (or
-/// data-local dir as a fallback) joined with `rehab`.
+/// The directory where journals are stored: `~/.local/state/rehab` on both
+/// Linux and macOS.
+///
+/// Unlike [`dirs::state_dir`] (which is `None` on macOS, falling back to
+/// `~/Library/Application Support`), rehab uses the XDG-style `~/.local/state`
+/// location on every platform so journals live in the same place everywhere.
+/// `XDG_STATE_HOME`, when set, overrides the base directory.
 pub fn journal_dir() -> Option<PathBuf> {
-    dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .map(|d| d.join("rehab"))
+    let base = match std::env::var_os("XDG_STATE_HOME") {
+        Some(v) if !v.is_empty() => PathBuf::from(v),
+        _ => dirs::home_dir()?.join(".local").join("state"),
+    };
+    Some(base.join("rehab"))
 }
 
 /// The file name for a journal stamped at `ts` (ms since epoch).
@@ -537,6 +544,23 @@ mod tests {
     #[test]
     fn journal_file_name_format() {
         assert_eq!(journal_file_name(42), "journal-42.jsonl");
+    }
+
+    #[test]
+    fn journal_dir_honors_xdg_state_home() {
+        // SAFETY: single-threaded within this test; we set and restore the var.
+        let prev = std::env::var_os("XDG_STATE_HOME");
+        unsafe {
+            std::env::set_var("XDG_STATE_HOME", "/tmp/xdg-state-test");
+        }
+        let dir = journal_dir().unwrap();
+        assert_eq!(dir, PathBuf::from("/tmp/xdg-state-test/rehab"));
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("XDG_STATE_HOME", v),
+                None => std::env::remove_var("XDG_STATE_HOME"),
+            }
+        }
     }
 
     #[test]

@@ -97,9 +97,9 @@ rehab -f docs/config.example.toml -L
 
 ## Undo
 
-Every non-dry-run writes a timestamped JSONL journal to the platform state
-directory (`~/.local/state/rehab/` on Linux, `~/Library/Application Support/rehab/`
-on macOS). To reverse the most recent run:
+Every non-dry-run writes a timestamped JSONL journal to the state directory
+(`~/.local/state/rehab/` on both Linux and macOS; `XDG_STATE_HOME` overrides the
+base directory). To reverse the most recent run:
 
 ```bash
 rehab undo            # revert the most recent run
