@@ -46,3 +46,15 @@ on_collision = "skip"
 # `-s safe` and the `-L` listing reflect this chain instead of the built-in.
 [sequences.safe]
 filters = ["safe", "wipeup", "lower"]
+
+# ---------------------------------------------------------------------------
+# Journal rotation. rehab writes one rename journal per run under the state
+# directory. These control retention when pruning (manually via
+# `rehab journals prune`, or automatically when auto_prune is on).
+# Precedence for the keep count: CLI flag > this config > built-in default (20).
+# ---------------------------------------------------------------------------
+[journal]
+# Keep the N most recent journals when pruning (0 = unlimited).
+keep = 20
+# Prune automatically after each run (opt-in; off by default).
+auto_prune = false

@@ -247,3 +247,71 @@ fn run_with_no_renames_writes_no_journal() {
         .expect("run rehab undo");
     assert!(!undo.status.success(), "undo with no journal should error");
 }
+
+#[test]
+fn journals_list_and_prune() {
+    let home = tempdir().unwrap();
+    let work = tempdir().unwrap();
+    for name in ["a one.txt", "b two.txt", "c three.txt"] {
+        let f = work.path().join(name);
+        std::fs::write(&f, b"x").unwrap();
+        assert!(
+            rehab_isolated(home.path())
+                .args(["-s", "safe"])
+                .arg(&f)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(journal_count(home.path()), 3);
+
+    let list = rehab_isolated(home.path())
+        .args(["journals", "list"])
+        .output()
+        .unwrap();
+    assert!(list.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&list.stdout)
+            .matches("renames")
+            .count(),
+        3
+    );
+
+    let prune = rehab_isolated(home.path())
+        .args(["journals", "prune", "--keep", "1"])
+        .output()
+        .unwrap();
+    assert!(prune.status.success());
+    assert_eq!(journal_count(home.path()), 1);
+}
+
+#[test]
+fn auto_prune_is_opt_in() {
+    let home = tempdir().unwrap();
+    let work = tempdir().unwrap();
+    for name in ["a one.txt", "b two.txt"] {
+        let f = work.path().join(name);
+        std::fs::write(&f, b"x").unwrap();
+        rehab_isolated(home.path())
+            .args(["-s", "safe"])
+            .arg(&f)
+            .output()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // No auto-prune requested: both journals remain.
+    assert_eq!(journal_count(home.path()), 2);
+
+    // Third run WITH --prune-journals --keep-journals 1 collapses to 1.
+    let f = work.path().join("c three.txt");
+    std::fs::write(&f, b"x").unwrap();
+    rehab_isolated(home.path())
+        .args(["-s", "safe", "--prune-journals", "--keep-journals", "1"])
+        .arg(&f)
+        .output()
+        .unwrap();
+    assert_eq!(journal_count(home.path()), 1);
+}

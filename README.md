@@ -35,6 +35,8 @@ rehab -L                             # list available sequences
 | `--on-collision <POLICY>` | `suffix` (default), `skip`, or `overwrite` when the target name already exists. |
 | `-f`, `--config <FILE>` | Use this config file instead of the default discovery. |
 | `-L`, `--list-sequences` | List available sequences and exit. |
+| `--keep-journals <N>` | Keep only the N most recent journals when pruning (`0` = unlimited). Overrides the config `keep`. |
+| `--prune-journals` | Prune old journals after this run (opt-in). |
 
 Naming a directory without `-r` processes its immediate, non-hidden contents
 (one level, no descent) — so `rehab .` cleans the current directory like
@@ -109,6 +111,31 @@ rehab undo --journal ~/.local/state/rehab/journal-1234567890.jsonl
 
 Undo reverses renames in inverse order and skips entries whose source is missing
 or whose target already exists, reporting each skip.
+
+### Journal rotation
+
+Journals accumulate one file per run. `rehab` can list and prune them, and can
+optionally prune automatically after a run.
+
+```bash
+rehab journals list                  # list saved journals, newest first
+rehab journals prune                 # keep the newest 20 (default), delete older
+rehab journals prune --keep 5        # keep only the newest 5
+rehab journals prune -n --keep 5     # preview what would be removed
+rehab journals prune -v --keep 5     # report each removed journal
+```
+
+Auto-prune after a run is **opt-in**:
+
+```bash
+rehab -r --prune-journals ./dir             # prune after this run (keep = config or 20)
+rehab -r --prune-journals --keep-journals 5 ./dir
+```
+
+Retention can also be set in config under `[journal]` (see below). Precedence for
+the keep count is **flag (`--keep-journals` / `--keep`) > config (`keep`) >
+default (20)**. A keep of `0` means unlimited (never prune). Automatic pruning
+happens only when `--prune-journals` is passed or `auto_prune = true` in config.
 
 ## Development
 

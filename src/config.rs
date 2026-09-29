@@ -46,6 +46,17 @@ pub struct SequenceConfig {
     pub on_collision: Option<String>,
 }
 
+/// Journal rotation settings.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+pub struct JournalConfig {
+    /// Number of journals to retain when pruning. `None` -> DEFAULT_KEEP.
+    #[serde(default)]
+    pub keep: Option<usize>,
+    /// Prune automatically after each run. Off by default.
+    #[serde(default)]
+    pub auto_prune: bool,
+}
+
 /// The parsed configuration file.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct Config {
@@ -56,6 +67,10 @@ pub struct Config {
     /// User-defined named sequences.
     #[serde(default)]
     pub sequences: BTreeMap<String, SequenceConfig>,
+
+    /// Journal rotation settings.
+    #[serde(default)]
+    pub journal: JournalConfig,
 }
 
 /// Errors that can arise while loading or resolving configuration.
@@ -118,6 +133,11 @@ impl Config {
             .unwrap_or_else(|| sequence::DEFAULT_SEQUENCE.to_string())
     }
 
+    /// Effective keep count: the configured value or the built-in default.
+    pub fn journal_keep(&self) -> usize {
+        self.journal.keep.unwrap_or(crate::journal::DEFAULT_KEEP)
+    }
+
     /// Resolve a sequence by name, letting config sequences override built-ins.
     ///
     /// Lookup order: config sequences first (so they can shadow a built-in of
@@ -169,6 +189,20 @@ mod tests {
         assert_eq!(cfg.default_sequence_name(), "default");
         let seq = cfg.resolve_default().unwrap();
         assert_eq!(seq.filter_names(), vec!["safe", "wipeup", "unicode-clean"]);
+    }
+
+    #[test]
+    fn journal_config_defaults() {
+        let cfg = Config::default();
+        assert_eq!(cfg.journal_keep(), 20);
+        assert!(!cfg.journal.auto_prune);
+    }
+
+    #[test]
+    fn journal_config_parses() {
+        let cfg = Config::from_toml_str("[journal]\nkeep = 5\nauto_prune = true\n").unwrap();
+        assert_eq!(cfg.journal_keep(), 5);
+        assert!(cfg.journal.auto_prune);
     }
 
     #[test]

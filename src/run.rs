@@ -67,6 +67,10 @@ pub fn run(args: &RunArgs) -> Result<(), RunError> {
         return Err(RunError::NoPaths);
     }
 
+    // Capture journal rotation settings before `config` is consumed below.
+    let auto_prune_enabled = args.prune_journals || config.journal.auto_prune;
+    let effective_keep = args.keep_journals.unwrap_or_else(|| config.journal_keep());
+
     let seq = match &args.sequence {
         Some(name) => config
             .resolve_sequence(name)
@@ -141,6 +145,17 @@ pub fn run(args: &RunArgs) -> Result<(), RunError> {
         eprintln!("journal: {}", w.path().display());
     }
 
+    // Opt-in journal rotation after a run that actually wrote a journal.
+    if !dry_run
+        && auto_prune_enabled
+        && let Some(dir) = journal::journal_dir()
+    {
+        let removed = journal::prune_journals(&dir, effective_keep).unwrap_or_default();
+        if verbose && !removed.is_empty() {
+            eprintln!("pruned {} old journal(s)", removed.len());
+        }
+    }
+
     Ok(())
 }
 
@@ -196,6 +211,56 @@ pub fn undo(args: &UndoArgs) -> Result<(), RunError> {
             eprintln!("warning: failed to undo {}: {e}", from.display());
         }
     }
+    Ok(())
+}
+
+/// `journals list`: print saved journals, newest first.
+pub fn journals_list() -> Result<(), RunError> {
+    let dir = journal::journal_dir()
+        .ok_or_else(|| RunError::Config("no state directory for journals".into()))?;
+    let journals = journal::list_journals(&dir);
+    if journals.is_empty() {
+        println!("no journals in {}", dir.display());
+        return Ok(());
+    }
+    for info in journals {
+        println!("{}  ({} renames)", info.path.display(), info.records);
+    }
+    Ok(())
+}
+
+/// `journals prune`: keep the newest N journals (flag > config > default).
+pub fn journals_prune(args: &crate::cli::JournalsPruneArgs) -> Result<(), RunError> {
+    let config =
+        Config::discover(args.config.as_deref()).map_err(|e| RunError::Config(e.to_string()))?;
+    let keep = args.keep.unwrap_or_else(|| config.journal_keep());
+    let dir = journal::journal_dir()
+        .ok_or_else(|| RunError::Config("no state directory for journals".into()))?;
+
+    if args.dry_run {
+        let journals = journal::list_journals(&dir);
+        let to_remove: Vec<_> = if keep == 0 {
+            Vec::new()
+        } else {
+            journals.into_iter().skip(keep).collect()
+        };
+        if to_remove.is_empty() {
+            println!("nothing to prune (keep = {keep})");
+        } else {
+            for info in &to_remove {
+                println!("would remove: {}", info.path.display());
+            }
+        }
+        return Ok(());
+    }
+
+    let removed = journal::prune_journals(&dir, keep)?;
+    if args.verbose {
+        for p in &removed {
+            println!("removed: {}", p.display());
+        }
+    }
+    println!("pruned {} journal(s), kept up to {keep}", removed.len());
     Ok(())
 }
 
@@ -258,6 +323,8 @@ mod tests {
             on_collision: OnCollision::Suffix,
             config: None,
             list_sequences: false,
+            keep_journals: None,
+            prune_journals: false,
             paths: vec![bad.clone()],
         };
         run(&args).unwrap();
@@ -281,6 +348,8 @@ mod tests {
             on_collision: OnCollision::Suffix,
             config: None,
             list_sequences: false,
+            keep_journals: None,
+            prune_journals: false,
             paths: vec![bad.clone()],
         };
         run(&args).unwrap();

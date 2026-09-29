@@ -239,10 +239,144 @@ pub fn journal_file_name(ts: u64) -> String {
     format!("journal-{ts}.jsonl")
 }
 
+/// Default number of journals to retain when pruning.
+pub const DEFAULT_KEEP: usize = 20;
+
+/// Metadata about a journal file on disk.
+#[derive(Debug, Clone)]
+pub struct JournalInfo {
+    /// Full path to the journal file.
+    pub path: PathBuf,
+    /// Last-modified time, used for ordering.
+    pub modified: SystemTime,
+    /// Number of rename records in the file (0 if it could not be read).
+    pub records: usize,
+}
+
+/// Return `true` if a path looks like a rehab journal (`journal-*.jsonl`).
+pub fn is_journal_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.starts_with("journal-") && n.ends_with(".jsonl"))
+        .unwrap_or(false)
+}
+
+/// List journals in `dir`, newest first (by mtime, then path desc). Empty if
+/// the directory does not exist or cannot be read.
+pub fn list_journals(dir: &Path) -> Vec<JournalInfo> {
+    let read = match fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let mut journals: Vec<JournalInfo> = read
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| is_journal_file(p))
+        .map(|path| {
+            let modified = fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .unwrap_or(UNIX_EPOCH);
+            let records = read_journal(&path).map(|r| r.len()).unwrap_or(0);
+            JournalInfo {
+                path,
+                modified,
+                records,
+            }
+        })
+        .collect();
+    journals.sort_by(|a, b| {
+        b.modified
+            .cmp(&a.modified)
+            .then_with(|| b.path.cmp(&a.path))
+    });
+    journals
+}
+
+/// Delete all but the `keep` newest journals in `dir`, returning removed paths.
+/// `keep == 0` means unlimited (nothing pruned). Attempts all deletions and
+/// returns the first error (if any) after trying the rest.
+pub fn prune_journals(dir: &Path, keep: usize) -> std::io::Result<Vec<PathBuf>> {
+    if keep == 0 {
+        return Ok(Vec::new());
+    }
+    let journals = list_journals(dir);
+    if journals.len() <= keep {
+        return Ok(Vec::new());
+    }
+    let mut removed = Vec::new();
+    let mut first_err: Option<std::io::Error> = None;
+    for info in journals.into_iter().skip(keep) {
+        match fs::remove_file(&info.path) {
+            Ok(()) => removed.push(info.path),
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+    }
+    match first_err {
+        Some(e) => Err(e),
+        None => Ok(removed),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn is_journal_file_matches_pattern() {
+        assert!(is_journal_file(Path::new("/x/journal-123.jsonl")));
+        assert!(!is_journal_file(Path::new("/x/notes.txt")));
+        assert!(!is_journal_file(Path::new("/x/journal-.txt")));
+    }
+
+    #[test]
+    fn list_journals_orders_newest_first() {
+        use std::thread::sleep;
+        use std::time::Duration;
+        let dir = tempdir().unwrap();
+        for i in 0..3 {
+            let w = LazyJournalWriter::new(dir.path().join(journal_file_name(i)));
+            w.append(&Record::with_ts("a", "b", i)).unwrap();
+            sleep(Duration::from_millis(10));
+        }
+        let list = list_journals(dir.path());
+        assert_eq!(list.len(), 3);
+        assert!(list[0].path.ends_with("journal-2.jsonl"));
+        assert_eq!(list[0].records, 1);
+    }
+
+    #[test]
+    fn prune_keeps_newest_n() {
+        use std::thread::sleep;
+        use std::time::Duration;
+        let dir = tempdir().unwrap();
+        for i in 0..5 {
+            let w = LazyJournalWriter::new(dir.path().join(journal_file_name(i)));
+            w.append(&Record::with_ts("a", "b", i)).unwrap();
+            sleep(Duration::from_millis(10));
+        }
+        let removed = prune_journals(dir.path(), 2).unwrap();
+        assert_eq!(removed.len(), 3);
+        let left = list_journals(dir.path());
+        assert_eq!(left.len(), 2);
+        assert!(left[0].path.ends_with("journal-4.jsonl"));
+        assert!(left[1].path.ends_with("journal-3.jsonl"));
+    }
+
+    #[test]
+    fn prune_zero_keep_is_unlimited() {
+        let dir = tempdir().unwrap();
+        for i in 0..3 {
+            let w = LazyJournalWriter::new(dir.path().join(journal_file_name(i)));
+            w.append(&Record::with_ts("a", "b", i)).unwrap();
+        }
+        assert_eq!(prune_journals(dir.path(), 0).unwrap().len(), 0);
+        assert_eq!(list_journals(dir.path()).len(), 3);
+    }
 
     #[test]
     fn lazy_writer_creates_no_file_until_first_append() {
