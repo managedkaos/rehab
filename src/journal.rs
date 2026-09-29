@@ -130,6 +130,85 @@ impl JournalWriter {
     }
 }
 
+/// A journal writer that defers creating the file until the first record is
+/// appended.
+///
+/// A run that renames nothing must not leave behind an empty journal, because
+/// the empty file would be the newest one and would shadow the previous run's
+/// real undo history. This wrapper resolves the target path up front (so path
+/// errors surface early) but only touches the filesystem once there is
+/// something to record.
+///
+/// It is `Send + Sync` and safe to share behind an `Arc` across rayon tasks:
+/// the first `append` under the lock creates the file, and subsequent appends
+/// reuse it.
+pub struct LazyJournalWriter {
+    path: PathBuf,
+    file: Mutex<Option<File>>,
+}
+
+impl LazyJournalWriter {
+    /// Prepare a lazy writer targeting `path`. No file is created yet.
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+            file: Mutex::new(None),
+        }
+    }
+
+    /// Prepare a lazy writer targeting a new timestamped journal in the default
+    /// state directory. Fails only if no state directory can be determined; the
+    /// file itself is still created lazily.
+    pub fn in_state_dir() -> std::io::Result<Self> {
+        let dir = journal_dir().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "could not determine a state directory for the journal",
+            )
+        })?;
+        Ok(Self::new(dir.join(journal_file_name(now_millis()))))
+    }
+
+    /// The path this journal will write to (whether or not it exists yet).
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// `true` if the journal file has actually been created (i.e. at least one
+    /// record was appended).
+    pub fn was_created(&self) -> bool {
+        self.file.lock().map(|f| f.is_some()).unwrap_or(true)
+    }
+
+    /// Append one record, creating the file (and its parent directories) on the
+    /// first call. The lock is held across create + serialize + write + flush
+    /// so concurrent rayon tasks never interleave within a line and the file is
+    /// created exactly once.
+    pub fn append(&self, record: &Record) -> std::io::Result<()> {
+        let line = serde_json::to_string(record)?;
+        let mut guard = self
+            .file
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.is_none() {
+            if let Some(parent) = self.path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&self.path)?;
+            *guard = Some(file);
+        }
+        let file = guard.as_mut().expect("file initialized above");
+        file.write_all(line.as_bytes())?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+        Ok(())
+    }
+}
+
 /// Read all records from a journal file, in written order. Blank lines are
 /// skipped; a malformed line produces an error.
 pub fn read_journal(path: impl AsRef<Path>) -> std::io::Result<Vec<Record>> {
@@ -164,6 +243,56 @@ pub fn journal_file_name(ts: u64) -> String {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn lazy_writer_creates_no_file_until_first_append() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nested/journal.jsonl");
+        let writer = LazyJournalWriter::new(&path);
+
+        // Nothing on disk, and the writer reports it hasn't been created.
+        assert!(!path.exists());
+        assert!(!writer.was_created());
+
+        // First append creates the file (and its parent directory).
+        writer.append(&Record::with_ts("a b", "a_b", 1)).unwrap();
+        assert!(path.exists());
+        assert!(writer.was_created());
+
+        let records = read_journal(&path).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].from, "a b");
+    }
+
+    #[test]
+    fn lazy_writer_dropped_without_append_leaves_no_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        {
+            let writer = LazyJournalWriter::new(&path);
+            assert!(!writer.was_created());
+            // No append; writer goes out of scope here.
+        }
+        assert!(
+            !path.exists(),
+            "an unused lazy writer must not create a file"
+        );
+    }
+
+    #[test]
+    fn lazy_writer_appends_are_reused_across_calls() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        let writer = Arc::new(LazyJournalWriter::new(&path));
+        for i in 0..3 {
+            writer
+                .append(&Record::with_ts(format!("from{i}"), format!("to{i}"), i))
+                .unwrap();
+        }
+        let records = read_journal(&path).unwrap();
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[2].from, "from2");
+    }
     use tempfile::tempdir;
 
     #[test]

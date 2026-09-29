@@ -7,6 +7,40 @@ fn rehab() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rehab"))
 }
 
+/// A `rehab` command whose state/config directories are isolated to `home`, so
+/// journal files land in a per-test location instead of the real state dir.
+/// Sets the vars `dirs` consults on both macOS (`HOME`) and Linux (XDG).
+fn rehab_isolated(home: &std::path::Path) -> Command {
+    let mut cmd = rehab();
+    cmd.env("HOME", home)
+        .env("XDG_STATE_HOME", home.join("state"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("XDG_CONFIG_HOME", home.join("config"));
+    cmd
+}
+
+/// Count journal files across the plausible state locations under `home`.
+fn journal_count(home: &std::path::Path) -> usize {
+    let candidates = [
+        home.join("state/rehab"),
+        home.join("data/rehab"),
+        home.join(".local/state/rehab"),
+        home.join(".local/share/rehab"),
+        home.join("Library/Application Support/rehab"),
+    ];
+    candidates
+        .iter()
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flat_map(|rd| rd.filter_map(|e| e.ok()))
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .map(|n| n.starts_with("journal-") && n.ends_with(".jsonl"))
+                .unwrap_or(false)
+        })
+        .count()
+}
+
 #[test]
 fn prints_help() {
     let output = rehab().arg("--help").output().expect("run rehab");
@@ -150,4 +184,66 @@ fn non_recursive_directory_arg_cleans_immediate_contents() {
     assert!(dir.path().join("sub_dir").exists());
     // The deep file keeps its original name (no descent).
     assert!(dir.path().join("sub_dir").join("deep file.txt").exists());
+}
+
+#[test]
+fn run_then_undo_restores_original_names() {
+    let home = tempdir().unwrap();
+    let work = tempdir().unwrap();
+    let bad = work.path().join("bad name.txt");
+    fs::write(&bad, b"x").unwrap();
+
+    // Real run (isolated state dir) renames the file and writes a journal.
+    let run = rehab_isolated(home.path())
+        .args(["-s", "safe"])
+        .arg(&bad)
+        .output()
+        .expect("run rehab");
+    assert!(run.status.success());
+    assert!(!bad.exists());
+    assert!(work.path().join("bad_name.txt").exists());
+    assert_eq!(
+        journal_count(home.path()),
+        1,
+        "run should write one journal"
+    );
+
+    // Undo (most recent journal) restores the original name.
+    let undo = rehab_isolated(home.path())
+        .arg("undo")
+        .output()
+        .expect("run rehab undo");
+    assert!(undo.status.success());
+    assert!(bad.exists(), "undo should restore the original name");
+    assert!(!work.path().join("bad_name.txt").exists());
+}
+
+#[test]
+fn run_with_no_renames_writes_no_journal() {
+    let home = tempdir().unwrap();
+    let work = tempdir().unwrap();
+    // Already-clean files: nothing to rename.
+    fs::write(work.path().join("clean.txt"), b"x").unwrap();
+    fs::write(work.path().join("also_clean.txt"), b"x").unwrap();
+
+    let out = rehab_isolated(home.path())
+        .args(["-s", "safe"])
+        .arg(work.path())
+        .output()
+        .expect("run rehab");
+    assert!(out.status.success());
+
+    // No journal file was created, so a later `undo` finds nothing to undo
+    // (rather than picking up an empty journal that shadows real history).
+    assert_eq!(
+        journal_count(home.path()),
+        0,
+        "a run that renames nothing must not create a journal"
+    );
+
+    let undo = rehab_isolated(home.path())
+        .arg("undo")
+        .output()
+        .expect("run rehab undo");
+    assert!(!undo.status.success(), "undo with no journal should error");
 }

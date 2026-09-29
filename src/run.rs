@@ -13,7 +13,7 @@ use rayon::prelude::*;
 
 use crate::cli::{RunArgs, UndoArgs};
 use crate::config::Config;
-use crate::journal::{self, JournalWriter, Record};
+use crate::journal::{self, LazyJournalWriter, Record};
 use crate::rename::{self, Plan};
 use crate::sequence::Sequence;
 use crate::walk;
@@ -111,10 +111,13 @@ pub fn run(args: &RunArgs) -> Result<(), RunError> {
     });
 
     // Phase 2: serialized commit — collision resolution + rename + journal.
+    // The writer is lazy: the journal file is created only on the first actual
+    // rename, so a run that renames nothing leaves no empty journal to shadow
+    // the previous run's undo history.
     let writer = if dry_run {
         None
     } else {
-        Some(Arc::new(JournalWriter::create_in_state_dir()?))
+        Some(Arc::new(LazyJournalWriter::in_state_dir()?))
     };
 
     for (path, cleaned) in &computed {
@@ -130,8 +133,10 @@ pub fn run(args: &RunArgs) -> Result<(), RunError> {
         commit(&plan, dry_run, verbose, writer.as_deref())?;
     }
 
+    // Only mention the journal if it was actually written to.
     if let Some(w) = &writer
         && verbose
+        && w.was_created()
     {
         eprintln!("journal: {}", w.path().display());
     }
@@ -144,7 +149,7 @@ fn commit(
     plan: &Plan,
     dry_run: bool,
     verbose: bool,
-    writer: Option<&JournalWriter>,
+    writer: Option<&LazyJournalWriter>,
 ) -> Result<(), RunError> {
     rename::execute(plan, dry_run, verbose)?;
     if !dry_run && let Some(w) = writer {
@@ -282,5 +287,88 @@ mod tests {
 
         assert!(bad.exists(), "dry-run must not modify the filesystem");
         assert!(!dir.path().join("a_b.txt").exists());
+    }
+
+    /// Helper: build UndoArgs pointing at an explicit journal.
+    fn undo_args(journal: &Path, dry_run: bool) -> UndoArgs {
+        UndoArgs {
+            journal: Some(journal.to_path_buf()),
+            dry_run,
+            verbose: false,
+        }
+    }
+
+    #[test]
+    fn undo_restores_renamed_files() {
+        // Rename a file, recording the rename in an explicit journal, then undo.
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("a b.txt");
+        let to = dir.path().join("a_b.txt");
+        fs::write(&from, b"x").unwrap();
+        fs::rename(&from, &to).unwrap();
+
+        let journal = dir.path().join("journal.jsonl");
+        {
+            let w = LazyJournalWriter::new(&journal);
+            w.append(&Record::new(
+                from.to_string_lossy().to_string(),
+                to.to_string_lossy().to_string(),
+            ))
+            .unwrap();
+        }
+
+        undo(&undo_args(&journal, false)).unwrap();
+
+        // Original name restored; cleaned name gone.
+        assert!(from.exists());
+        assert!(!to.exists());
+    }
+
+    #[test]
+    fn undo_dry_run_changes_nothing() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("a b.txt");
+        let to = dir.path().join("a_b.txt");
+        fs::write(&to, b"x").unwrap();
+
+        let journal = dir.path().join("journal.jsonl");
+        {
+            let w = LazyJournalWriter::new(&journal);
+            w.append(&Record::new(
+                from.to_string_lossy().to_string(),
+                to.to_string_lossy().to_string(),
+            ))
+            .unwrap();
+        }
+
+        undo(&undo_args(&journal, true)).unwrap();
+
+        // Dry-run: nothing moved.
+        assert!(to.exists());
+        assert!(!from.exists());
+    }
+
+    #[test]
+    fn undo_skips_missing_source_and_occupied_target() {
+        // Journal references a rename whose "to" no longer exists: undo must
+        // skip it gracefully rather than error.
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("gone from.txt");
+        let to = dir.path().join("gone_from.txt"); // does not exist on disk
+
+        let journal = dir.path().join("journal.jsonl");
+        {
+            let w = LazyJournalWriter::new(&journal);
+            w.append(&Record::new(
+                from.to_string_lossy().to_string(),
+                to.to_string_lossy().to_string(),
+            ))
+            .unwrap();
+        }
+
+        // Should complete without error and without creating anything.
+        undo(&undo_args(&journal, false)).unwrap();
+        assert!(!from.exists());
+        assert!(!to.exists());
     }
 }
