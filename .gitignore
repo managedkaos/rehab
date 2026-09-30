@@ -28,3 +28,6 @@ target
 # Generated man page (produced by `make man` / `cargo run --bin gen-man`).
 # The hand-written man/rehab-config.5 is tracked.
 /man/rehab.1
+
+# Scratch file for composing PR bodies passed to `gh pr edit/create --body-file`.
+/.pr-body.md
