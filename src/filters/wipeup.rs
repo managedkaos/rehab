@@ -1,12 +1,14 @@
-//! The `wipeup` filter: collapse runs of the separator into one and trim
-//! leading/trailing separators and dots.
+//! The `wipeup` filter: collapse runs of the separator into one,
+//! remove a separator before the last-dot extension, and trim leading/trailing
+//! separators and dots.
 //!
 //! This runs after `safe` (which turns problematic characters into separators)
 //! to tidy up the result: `a__b` becomes `a_b`, and `_a_.` becomes `a`.
 
 use super::{DEFAULT_SEPARATOR, Filter};
 
-/// Collapses repeated separators into a single separator and trims leading and
+/// Collapses repeated separators, removes a separator before the last-dot
+/// extension when its base and extension are non-empty, and trims leading and
 /// trailing separators and dots.
 #[derive(Debug, Clone)]
 pub struct WipeupFilter {
@@ -44,6 +46,27 @@ impl Filter for WipeupFilter {
             } else {
                 collapsed.push(c);
                 prev_was_sep = false;
+            }
+        }
+
+        // Remove a single separator sitting immediately before the file
+        // extension (the last dot), matching legacy detox: `file_1_.csv`
+        // becomes `file_1.csv`. Only applies when there is a non-empty base
+        // before the separator and a non-empty extension after the dot, so
+        // pathological names like `_.csv` fall through to the trim/guard below.
+        // Uses the last dot only, so `archive_.tar.gz` is left unchanged.
+        if let Some(dot) = collapsed.rfind('.') {
+            let base = &collapsed[..dot];
+            let ext = &collapsed[dot + 1..]; // '.' is one byte (ASCII)
+            if !ext.is_empty()
+                && let Some(sep) = base.chars().next_back()
+                && sep == self.separator
+            {
+                let sep_len = sep.len_utf8();
+                let base_without_sep = &base[..base.len() - sep_len];
+                if !base_without_sep.is_empty() {
+                    collapsed = format!("{base_without_sep}.{ext}");
+                }
             }
         }
 
@@ -117,5 +140,47 @@ mod tests {
     #[test]
     fn custom_separator() {
         assert_eq!(WipeupFilter::new('-').apply("-a--b-"), "a-b");
+    }
+
+    #[test]
+    fn removes_separator_before_extension() {
+        assert_eq!(wipeup("file_1_.csv"), "file_1.csv");
+        assert_eq!(wipeup("a_.txt"), "a.txt");
+        assert_eq!(wipeup("a_b_.txt"), "a_b.txt");
+    }
+
+    #[test]
+    fn collapses_then_removes_separator_before_extension() {
+        assert_eq!(wipeup("a__.txt"), "a.txt");
+    }
+
+    #[test]
+    fn extension_case_is_irrelevant() {
+        assert_eq!(wipeup("photo_.JPG"), "photo.JPG");
+    }
+
+    #[test]
+    fn only_last_dot_defines_the_extension() {
+        assert_eq!(wipeup("archive_.tar.gz"), "archive_.tar.gz");
+    }
+
+    #[test]
+    fn empty_base_before_extension_falls_through_to_trim() {
+        assert_eq!(wipeup("_.csv"), "csv");
+    }
+
+    #[test]
+    fn no_extension_still_trims_trailing_separator() {
+        assert_eq!(wipeup("file_1_"), "file_1");
+    }
+
+    #[test]
+    fn internal_dot_without_preceding_separator_is_preserved() {
+        assert_eq!(wipeup("file.name.txt"), "file.name.txt");
+    }
+
+    #[test]
+    fn custom_separator_before_extension() {
+        assert_eq!(WipeupFilter::new('-').apply("a-.txt"), "a.txt");
     }
 }

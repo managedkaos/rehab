@@ -86,6 +86,22 @@ fn renames_a_bad_name() {
 }
 
 #[test]
+fn default_sequence_removes_separator_before_extension() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let bad = dir.path().join("file (1).csv");
+    fs::write(&bad, b"x").unwrap();
+
+    let output = rehab_isolated(home.path())
+        .arg(&bad)
+        .output()
+        .expect("run rehab");
+    assert!(output.status.success());
+    assert!(!bad.exists());
+    assert_eq!(fs::read(dir.path().join("file_1.csv")).unwrap(), b"x");
+}
+
+#[test]
 fn dry_run_leaves_files_untouched_but_prints_plan() {
     let dir = tempdir().unwrap();
     let bad = dir.path().join("bad name.txt");

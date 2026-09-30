@@ -208,10 +208,13 @@ mod tests {
 
     #[test]
     fn default_sequence_applies_end_to_end() {
-        // safe leaves underscores/dots; wipeup collapses the "__" run and trims
-        // the leading "_". The "_" before ".txt" is internal, so it stays.
+        // safe leaves underscores/dots; wipeup collapses the "__" run, trims
+        // the leading "_", and removes the separator immediately before the
+        // ".txt" extension, so "_a__b_.txt" becomes "a_b.txt".
         let seq = default_sequence();
-        assert_eq!(seq.apply("_a__b_.txt"), "a_b_.txt");
+        assert_eq!(seq.apply("_a__b_.txt"), "a_b.txt");
+        // Real-world detox-parity example.
+        assert_eq!(seq.apply("file (1).csv"), "file_1.csv");
     }
 
     #[test]

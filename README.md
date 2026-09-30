@@ -61,10 +61,14 @@ Filters:
 | Filter | Description |
 | ------ | ----------- |
 | `safe` | Replace spaces, tabs, line breaks, and shell-problematic characters (such as parentheses, quotes, and dollar signs) with a separator (default `_`). |
-| `wipeup` | Collapse repeated separators and trim leading/trailing separators and dots, keeping the collapsed name if trimming would leave it empty. |
+| `wipeup` | Collapse repeated separators, remove a separator immediately before the file extension (so `file (1).csv` becomes `file_1.csv`), and trim leading/trailing separators and dots, keeping the collapsed name if trimming would leave it empty. |
 | `lower` | Lowercase the name using Unicode-aware lowercasing. |
 | `unicode-clean` | Strip Unicode control and format characters, such as zero-width spaces and bidirectional overrides. |
 | `cgi-unescape` | Decode `%XX` escapes, including multibyte UTF-8 sequences. Leave invalid escapes as written; keep the original name if decoding produces invalid UTF-8. |
+
+`wipeup` uses only the last dot to define the extension and removes the separator
+only when the base before it and the extension are both non-empty. This string
+transform applies to every path component, including directory names.
 
 A *sequence* is an ordered chain of filters applied to each filename component.
 
