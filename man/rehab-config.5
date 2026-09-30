@@ -125,7 +125,11 @@ Replace spaces and shell-problematic characters (for example
 with a separator.
 .TP
 .B wipeup
-Collapse repeated separators and trim leading and trailing separators.
+Collapse repeated separators, remove a separator immediately before the extension
+(as defined by the last dot only) when the base before the separator and the
+extension are both non-empty, and trim leading and trailing separators and dots.
+Keep the collapsed name if trimming would leave it empty.
+This string transform applies to every path component, including directory names.
 .TP
 .B lower
 Lowercase the name.

@@ -26,7 +26,10 @@ default = "myseq"
 # built-in; a new name EXTENDS the available set. Available filter names:
 #
 #   safe           replace spaces and shell-problematic characters with `_`
-#   wipeup         collapse repeated separators, trim leading/trailing ones
+#   wipeup         collapse repeated separators, remove separator before the
+#                  last-dot extension only with non-empty base/extension, then
+#                  trim leading/trailing separators and dots (keep collapsed
+#                  name if trimming would empty it); applies to every component
 #   lower          lowercase the name
 #   unicode-clean  strip Unicode control/format characters
 #   cgi-unescape   decode %XX escapes

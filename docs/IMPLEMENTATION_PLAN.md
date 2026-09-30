@@ -105,8 +105,11 @@ parents) so directory renames don't invalidate child paths.
 - Demo: `rehab -r ./messy_dir` cleans the whole tree.
 
 ### Task 6: Remaining filters — wipeup, lower, unicode-clean, cgi-unescape
-Implement each as a `Filter`: `wipeup` (collapse repeated separators, trim
-leading/trailing separators/dots), `lower` (lowercase), `unicode-clean` (strip
+Implement each as a `Filter`: `wipeup` (collapse repeated separators, remove a
+separator immediately before the last-dot extension only when the base before
+the separator and the extension are non-empty, then trim leading/trailing
+separators/dots, keeping the collapsed name if trimming would leave it empty;
+apply uniformly to every path component without filesystem-type heuristics), `lower` (lowercase), `unicode-clean` (strip
 Unicode control/format chars), `cgi-unescape` (decode `%XX`).
 - Tests: unit tests per filter covering representative inputs/edge cases
   (empty-result guard, multibyte safety).
