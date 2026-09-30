@@ -182,6 +182,11 @@ mod tests {
     }
 
     #[test]
+    fn internal_dot_without_preceding_separator_is_preserved() {
+        assert_eq!(wipeup("file.name.txt"), "file.name.txt");
+    }
+
+    #[test]
     fn custom_separator_before_extension() {
         assert_eq!(WipeupFilter::new('-').apply("a-.txt"), "a.txt");
     }
