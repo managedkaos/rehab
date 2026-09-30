@@ -24,3 +24,7 @@ target
 # Added by cargo
 
 /target
+
+# Generated man page (produced by `make man` / `cargo run --bin gen-man`).
+# The hand-written man/rehab-config.5 is tracked.
+/man/rehab.1

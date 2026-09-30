@@ -1,0 +1,215 @@
+.TH REHAB-CONFIG 5 "" "rehab" "File Formats and Conventions"
+.SH NAME
+rehab-config \- configuration file format for rehab(1)
+.SH SYNOPSIS
+.B ~/.config/rehab/config.toml
+.SH DESCRIPTION
+.BR rehab (1)
+reads an optional configuration file written in TOML. The file defines named
+.IR sequences ,
+selects the default sequence, and tunes undo-journal rotation. It is entirely
+optional: with no config file, rehab uses only its built-in sequences and
+defaults.
+.PP
+Configuration is additive over the built-ins. A sequence defined in the config
+whose name matches a built-in replaces that built-in; a sequence with a new
+name extends the available set.
+.SH FILE DISCOVERY
+The configuration file is located using the following order, highest priority
+first:
+.IP 1. 4
+An explicit path given with
+.B \-\-config
+.RB ( \-f )
+on the command line.
+.IP 2. 4
+.BR ~/.config/rehab/config.toml
+(the same path on Linux and macOS). If
+.B XDG_CONFIG_HOME
+is set, it overrides the
+.B ~/.config
+base directory.
+.IP 3. 4
+No file: only the built-in sequences and defaults apply.
+.PP
+When an explicit
+.B \-\-config
+path is given but does not exist, rehab reports an error rather than falling
+back to discovery.
+.SH FORMAT
+The file has three parts, all optional: a top-level
+.B default
+key, a
+.B [sequences.<name>]
+table for each named sequence, and a
+.B [journal]
+table for rotation settings.
+.SS Top-level keys
+.TP
+.B default
+.RI ( string )
+Name of the sequence to apply when none is given with
+.BR \-\-sequence " (" \-s ).
+When unset, the built-in
+.B default
+sequence is used
+.RB ( safe " \(-> " wipeup " \(-> " unicode-clean ).
+.SS Sequence tables
+Each named sequence is declared as a
+.B [sequences.<name>]
+table.
+.TP
+.B filters
+.RI ( "array of string" ", required)"
+The ordered chain of filter names to apply to each filename component. The
+output of each filter feeds the next. Valid filter names are
+.BR safe ", " wipeup ", " lower ", " unicode-clean ", and " cgi-unescape
+(see
+.BR FILTERS
+below). An unknown filter name is an error when the sequence is resolved.
+.TP
+.B separator
+.RI ( string ", optional)"
+Preferred replacement separator for the
+.B safe
+and
+.B wipeup
+filters.
+.TP
+.B on_collision
+.RI ( string ", optional)"
+Preferred behavior when a target name already exists:
+.BR suffix ", " skip ", or " overwrite .
+.PP
+.B Note:
+The per-sequence
+.B separator
+and
+.B on_collision
+keys are parsed and validated but are
+.I not yet
+wired into the rename pipeline. For now the separator is always
+.RB \(lq _ \(rq
+and the collision policy is selected with the
+.B \-\-on-collision
+command-line flag. Wiring these keys through is tracked as a follow-up.
+.SS Journal table
+Undo journals accumulate one file per non-dry-run. The
+.B [journal]
+table controls their rotation.
+.TP
+.B keep
+.RI ( integer ", optional)"
+Number of journals to retain when pruning. A value of
+.B 0
+means unlimited (never prune). When unset, the default is
+.BR 20 .
+The keep count precedence is: the
+.BR \-\-keep-journals " / " \-\-keep
+flag, then this config value, then the default of 20.
+.TP
+.B auto_prune
+.RI ( boolean ", optional)"
+When
+.BR true ,
+prune old journals automatically after each run. Defaults to
+.BR false ,
+in which case pruning happens only when
+.B \-\-prune-journals
+is passed.
+.SH FILTERS
+.TP
+.B safe
+Replace spaces and shell-problematic characters (for example
+.BR "( ) { } [ ] & ; | < > * ? ! ' \(dq $" )
+with a separator.
+.TP
+.B wipeup
+Collapse repeated separators and trim leading and trailing separators.
+.TP
+.B lower
+Lowercase the name.
+.TP
+.B unicode-clean
+Strip Unicode control and format characters. See
+.BR unicode (7).
+.TP
+.B cgi-unescape
+Decode
+.B %XX
+percent-escapes, as produced by CGI/URL encoding. See
+.BR ascii (7)
+and
+.BR utf-8 (7).
+.SH BUILT-IN SEQUENCES
+.TP
+.B default
+.BR safe " \(-> " wipeup " \(-> " unicode-clean
+.TP
+.B safe
+.B safe
+.TP
+.B safe-lower
+.BR safe " \(-> " wipeup " \(-> " lower
+.TP
+.B iso8859_1
+.BR cgi-unescape " \(-> " safe " \(-> " wipeup " \(-> " unicode-clean
+.RB "(see " iso_8859-1 (7))
+.TP
+.B utf8
+.BR cgi-unescape " \(-> " safe " \(-> " wipeup " \(-> " unicode-clean
+.RB "(see " utf-8 (7))
+.SH EXAMPLES
+A configuration that defines a custom sequence, makes it the default, and keeps
+only the five most recent journals:
+.PP
+.RS 4
+.nf
+default = "myseq"
+
+[sequences.myseq]
+filters = ["cgi-unescape", "safe", "lower"]
+separator = "-"
+on_collision = "skip"
+
+[journal]
+keep = 5
+auto_prune = true
+.fi
+.RE
+.PP
+Redefining a built-in sequence (here, adding lowercasing to
+.BR safe ):
+.PP
+.RS 4
+.nf
+[sequences.safe]
+filters = ["safe", "lower"]
+.fi
+.RE
+.PP
+The command
+.B rehab init
+writes a commented file mirroring rehab's defaults to the standard location, as
+a starting point to edit.
+.SH FILES
+.TP
+.B ~/.config/rehab/config.toml
+Default configuration file (same path on Linux and macOS). Overridden by
+.B \-\-config
+or by
+.BR $XDG_CONFIG_HOME .
+.SH ENVIRONMENT
+.TP
+.B XDG_CONFIG_HOME
+Overrides the base directory used to locate the configuration file. When set,
+rehab reads
+.B $XDG_CONFIG_HOME/rehab/config.toml
+instead of
+.BR ~/.config/rehab/config.toml .
+.SH SEE ALSO
+.BR rehab (1),
+.BR ascii (7),
+.BR iso_8859-1 (7),
+.BR unicode (7),
+.BR utf-8 (7)

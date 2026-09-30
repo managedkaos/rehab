@@ -2,9 +2,26 @@
 name = "rehab"
 version = "0.1.0"
 edition = "2024"
+default-run = "rehab"
+
+[features]
+# Documentation tooling. Enables the `gen-man` binary and its dependency so
+# normal builds/installs don't compile the man-page generator. Build it with:
+#   cargo run --features gen-man --bin gen-man
+gen-man = ["dep:clap_mangen"]
+
+[[bin]]
+name = "rehab"
+path = "src/main.rs"
+
+[[bin]]
+name = "gen-man"
+path = "src/bin/gen-man.rs"
+required-features = ["gen-man"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+clap_mangen = { version = "0.3.3", optional = true }
 walkdir = "2"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }

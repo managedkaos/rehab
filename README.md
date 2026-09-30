@@ -3,14 +3,15 @@
 A modern reimagining of [`detox`](https://github.com/dharple/detox): rename
 files and directories to replace problematic characters (spaces, shell
 metacharacters, control characters, CGI escapes) with safe, easy-to-type
-alternatives. Filters are composable, sequences are configurable, traversal is
+alternatives.
+
+Filters are composable, sequences are configurable, traversal is
 parallel, and every run is journaled so it can be undone.
 
 ## Usage
 
-```
+```bash
 rehab [OPTIONS] <PATH>...
-rehab undo [--journal <FILE>] [-n] [-v]
 ```
 
 Clean one or more files/directories:
@@ -23,10 +24,17 @@ rehab -s safe-lower ./Photos         # apply a specific sequence
 rehab -L                             # list available sequences
 ```
 
+Undo:
+
+```bash
+rehab journals list
+rehab undo [--journal <FILE>] [-n] [-v]
+```
+
 ### Options
 
 | Flag | Description |
-|------|-------------|
+| ------ | ------------- |
 | `-n`, `--dry-run` | Show the planned renames without modifying the filesystem. Skipped files (unchanged names, or collisions under `--on-collision skip`) are not listed unless `-v` is also given. |
 | `-r`, `--recursive` | Recurse into subdirectories (traversal roots that are directories are descended, not renamed; hidden `.` entries are skipped). |
 | `-v`, `--verbose` | Report each rename as it happens, and also report files that are skipped. |
@@ -42,26 +50,33 @@ Naming a directory without `-r` processes its immediate, non-hidden contents
 (one level, no descent) — so `rehab .` cleans the current directory like
 `detox .`. Use `-r` to recurse into subdirectories.
 
-## Sequences
+## Filters and Sequences
+
+A *filter* transforms a single file or directory name, such as by replacing
+problematic characters or changing its case. Filters can be combined in a
+sequence to apply several transformations in order.
+
+Filters:
+
+| Filter | Description |
+| ------ | ----------- |
+| `safe` | Replace spaces, tabs, line breaks, and shell-problematic characters (such as parentheses, quotes, and dollar signs) with a separator (default `_`). |
+| `wipeup` | Collapse repeated separators and trim leading/trailing separators and dots, keeping the collapsed name if trimming would leave it empty. |
+| `lower` | Lowercase the name using Unicode-aware lowercasing. |
+| `unicode-clean` | Strip Unicode control and format characters, such as zero-width spaces and bidirectional overrides. |
+| `cgi-unescape` | Decode `%XX` escapes, including multibyte UTF-8 sequences. Leave invalid escapes as written; keep the original name if decoding produces invalid UTF-8. |
 
 A *sequence* is an ordered chain of filters applied to each filename component.
-Built-ins:
+
+Built-in sequences:
 
 | Sequence | Filters |
-|----------|---------|
+| ---------- | --------- |
 | `default` | `safe` → `wipeup` → `unicode-clean` |
 | `safe` | `safe` |
 | `safe-lower` | `safe` → `wipeup` → `lower` |
 | `iso8859_1` | `cgi-unescape` → `safe` → `wipeup` → `unicode-clean` |
 | `utf8` | `cgi-unescape` → `safe` → `wipeup` → `unicode-clean` |
-
-Filters:
-
-- **safe** — replace spaces and shell-problematic characters (`(){}[]&;|<>*?!'"$` …) with a separator (default `_`).
-- **wipeup** — collapse repeated separators and trim leading/trailing separators.
-- **lower** — lowercase the name.
-- **unicode-clean** — strip Unicode control/format characters.
-- **cgi-unescape** — decode `%XX` escapes.
 
 ## Configuration
 
@@ -77,11 +92,6 @@ filters = ["cgi-unescape", "safe", "lower"]
 separator = "-"
 on_collision = "skip"
 ```
-
-> Note: `filters` and `default` are fully applied. The per-sequence `separator`
-> and `on_collision` keys are parsed but not yet wired into the pipeline — for
-> now the separator is `_` and the collision policy is set with the
-> `--on-collision` flag. Wiring these through is tracked as a follow-up.
 
 A complete, commented example lives at
 [`docs/config.example.toml`](docs/config.example.toml). Copy it to the default
@@ -162,3 +172,52 @@ make fmt      # format in place
 
 The design and task breakdown live in
 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+
+## Man pages
+
+rehab ships two man pages:
+
+- **`rehab(1)`** — command usage, options, and subcommands. Generated from the
+  CLI definition, so it always matches the actual flags.
+- **`rehab-config(5)`** — the TOML configuration file format (hand-written).
+
+Both cross-reference each other and the standard encoding references
+`ascii(7)`, `iso_8859-1(7)`, `unicode(7)`, and `utf-8(7)`.
+
+Generate and install them with:
+
+```bash
+make man                 # regenerate man/rehab.1 (rehab-config.5 is hand-written)
+make install-man         # install into $(PREFIX)/share/man/man{1,5}
+make uninstall-man       # remove them
+```
+
+The generator lives behind an opt-in `gen-man` Cargo feature so normal builds
+and `cargo install` don't compile the documentation tooling. `make man` enables
+it for you; to run it directly:
+
+```bash
+cargo run --features gen-man --bin gen-man -- man
+```
+
+`make install` runs `install-man` automatically (and `make uninstall` runs
+`uninstall-man`). After installing, view them with:
+
+```bash
+man rehab
+man rehab-config
+```
+
+If the pages aren't found, ensure the man directory (default
+`~/.local/share/man`) is on your `MANPATH`. The generated `man/rehab.1` is not
+checked into git; run `make man` to (re)create it. You can also preview a page
+without installing:
+
+```bash
+make man && man ./man/rehab.1
+man ./man/rehab-config.5
+```
+
+> The four `(7)` reference pages are standard Linux man-pages entries; rehab
+> only cross-references them and does not ship copies. They may not be present
+> by default on macOS.
