@@ -3,14 +3,15 @@
 A modern reimagining of [`detox`](https://github.com/dharple/detox): rename
 files and directories to replace problematic characters (spaces, shell
 metacharacters, control characters, CGI escapes) with safe, easy-to-type
-alternatives. Filters are composable, sequences are configurable, traversal is
+alternatives.
+
+Filters are composable, sequences are configurable, traversal is
 parallel, and every run is journaled so it can be undone.
 
 ## Usage
 
-```
+```bash
 rehab [OPTIONS] <PATH>...
-rehab undo [--journal <FILE>] [-n] [-v]
 ```
 
 Clean one or more files/directories:
@@ -23,10 +24,17 @@ rehab -s safe-lower ./Photos         # apply a specific sequence
 rehab -L                             # list available sequences
 ```
 
+Undo:
+
+```bash
+rehab journals list
+rehab undo [--journal <FILE>] [-n] [-v]
+```
+
 ### Options
 
 | Flag | Description |
-|------|-------------|
+| ------ | ------------- |
 | `-n`, `--dry-run` | Show the planned renames without modifying the filesystem. Skipped files (unchanged names, or collisions under `--on-collision skip`) are not listed unless `-v` is also given. |
 | `-r`, `--recursive` | Recurse into subdirectories (traversal roots that are directories are descended, not renamed; hidden `.` entries are skipped). |
 | `-v`, `--verbose` | Report each rename as it happens, and also report files that are skipped. |
@@ -42,26 +50,33 @@ Naming a directory without `-r` processes its immediate, non-hidden contents
 (one level, no descent) — so `rehab .` cleans the current directory like
 `detox .`. Use `-r` to recurse into subdirectories.
 
-## Sequences
+## Filters and Sequences
+
+A *filter* transforms a single file or directory name, such as by replacing
+problematic characters or changing its case. Filters can be combined in a
+sequence to apply several transformations in order.
+
+Filters:
+
+| Filter | Description |
+| ------ | ----------- |
+| `safe` | Replace spaces, tabs, line breaks, and shell-problematic characters (such as parentheses, quotes, and dollar signs) with a separator (default `_`). |
+| `wipeup` | Collapse repeated separators and trim leading/trailing separators and dots, keeping the collapsed name if trimming would leave it empty. |
+| `lower` | Lowercase the name using Unicode-aware lowercasing. |
+| `unicode-clean` | Strip Unicode control and format characters, such as zero-width spaces and bidirectional overrides. |
+| `cgi-unescape` | Decode `%XX` escapes, including multibyte UTF-8 sequences. Leave invalid escapes as written; keep the original name if decoding produces invalid UTF-8. |
 
 A *sequence* is an ordered chain of filters applied to each filename component.
-Built-ins:
+
+Built-in sequences:
 
 | Sequence | Filters |
-|----------|---------|
+| ---------- | --------- |
 | `default` | `safe` → `wipeup` → `unicode-clean` |
 | `safe` | `safe` |
 | `safe-lower` | `safe` → `wipeup` → `lower` |
 | `iso8859_1` | `cgi-unescape` → `safe` → `wipeup` → `unicode-clean` |
 | `utf8` | `cgi-unescape` → `safe` → `wipeup` → `unicode-clean` |
-
-Filters:
-
-- **safe** — replace spaces and shell-problematic characters (`(){}[]&;|<>*?!'"$` …) with a separator (default `_`).
-- **wipeup** — collapse repeated separators and trim leading/trailing separators.
-- **lower** — lowercase the name.
-- **unicode-clean** — strip Unicode control/format characters.
-- **cgi-unescape** — decode `%XX` escapes.
 
 ## Configuration
 
@@ -77,11 +92,6 @@ filters = ["cgi-unescape", "safe", "lower"]
 separator = "-"
 on_collision = "skip"
 ```
-
-> Note: `filters` and `default` are fully applied. The per-sequence `separator`
-> and `on_collision` keys are parsed but not yet wired into the pipeline — for
-> now the separator is `_` and the collision policy is set with the
-> `--on-collision` flag. Wiring these through is tracked as a follow-up.
 
 A complete, commented example lives at
 [`docs/config.example.toml`](docs/config.example.toml). Copy it to the default
