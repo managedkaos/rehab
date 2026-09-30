@@ -175,6 +175,13 @@ mod tests {
     }
 
     #[test]
+    fn separator_before_a_non_extension_dot_is_preserved() {
+        // Only the separator before the last (extension) dot is removed, so a
+        // separator sitting before an earlier, internal dot is left intact.
+        assert_eq!(wipeup("file_.name.txt"), "file_.name.txt");
+    }
+
+    #[test]
     fn internal_dot_without_preceding_separator_is_preserved() {
         assert_eq!(wipeup("file.name.txt"), "file.name.txt");
     }
