@@ -1,0 +1,97 @@
+name: Release
+
+# Releases are cut by pushing a semver tag that matches the version in Cargo.toml.
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail early if the tag and Cargo.toml disagree.
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Cargo.toml version ($actual) does not match tag ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets --all-features
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, name: darwin-arm64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, name: darwin-amd64 }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, name: linux-amd64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: linux-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build binary
+        run: |
+          cargo build --release --locked --bin rehab --target "${{ matrix.target }}"
+
+      - name: Generate man page
+        run: cargo run --locked --features gen-man --bin gen-man -- man
+
+      - name: Package
+        run: |
+          mkdir -p stage/man
+          cp "target/${{ matrix.target }}/release/rehab" stage/
+          cp man/rehab.1 man/rehab-config.5 stage/man/
+          cp LICENSE README.md stage/
+          tar -C stage -czf "rehab-${{ matrix.name }}.tar.gz" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rehab-${{ matrix.name }}
+          path: rehab-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rehab-*
+          merge-multiple: true
+
+      - name: Checksums
+        run: sha256sum rehab-*.tar.gz | tee checksums.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            rehab-*.tar.gz checksums.txt
