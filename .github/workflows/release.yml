@@ -95,3 +95,15 @@ jobs:
             --title "${{ github.ref_name }}" \
             --generate-notes \
             rehab-*.tar.gz checksums.txt
+
+  update-tap:
+    needs: release
+    permissions:
+      contents: read
+    uses: managedkaos/homebrew-tap/.github/workflows/update-formula.yml@main
+    with:
+      formula: rehab
+      tag: ${{ github.ref_name }}
+    secrets:
+      TAP_APP_ID: ${{ secrets.TAP_APP_ID }}
+      TAP_APP_PRIVATE_KEY: ${{ secrets.TAP_APP_PRIVATE_KEY }}
