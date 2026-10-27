@@ -25,7 +25,8 @@ default = "myseq"
 # chain. A sequence whose name matches a built-in (e.g. `safe`) REPLACES that
 # built-in; a new name EXTENDS the available set. Available filter names:
 #
-#   safe           replace spaces and shell-problematic characters with `_`
+#   safe           replace spaces and shell-problematic characters with `_`,
+#                  including ASCII and fullwidth colons (U+FF1A)
 #   wipeup         collapse repeated separators, remove separator before the
 #                  last-dot extension only with non-empty base/extension, then
 #                  trim leading/trailing separators and dots (keep collapsed
