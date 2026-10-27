@@ -60,7 +60,7 @@ Filters:
 
 | Filter | Description |
 | ------ | ----------- |
-| `safe` | Replace spaces, tabs, line breaks, and shell-problematic characters (such as parentheses, quotes, and dollar signs) with a separator (default `_`). |
+| `safe` | Replace spaces, tabs, line breaks, and shell-problematic characters (such as parentheses, quotes, dollar signs, ASCII `:`, and fullwidth `：` (U+FF1A)) with a separator (default `_`). |
 | `wipeup` | Collapse repeated separators, remove a separator immediately before the file extension (so `file (1).csv` becomes `file_1.csv`), and trim leading/trailing separators and dots, keeping the collapsed name if trimming would leave it empty. |
 | `lower` | Lowercase the name using Unicode-aware lowercasing. |
 | `unicode-clean` | Strip Unicode control and format characters, such as zero-width spaces and bidirectional overrides. |

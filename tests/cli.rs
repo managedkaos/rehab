@@ -102,6 +102,42 @@ fn default_sequence_removes_separator_before_extension() {
 }
 
 #[test]
+fn default_sequence_cleans_fullwidth_colons_in_video_names() {
+    let home = tempdir().unwrap();
+    let dir = tempdir().unwrap();
+    let names = [
+        (
+            "FCTC_S5E7：_Taking_Terraform_to_Production_JOOCpha4exY.mkv",
+            "FCTC_S5E7_Taking_Terraform_to_Production_JOOCpha4exY.mkv",
+        ),
+        (
+            "FCTC_S5E7：_Taking_Terraform_to_Production_JOOCpha4exY_.f137.mp4",
+            "FCTC_S5E7_Taking_Terraform_to_Production_JOOCpha4exY_.f137.mp4",
+        ),
+        (
+            "FCTC_S5E7：_Taking_Terraform_to_Production_JOOCpha4exY_.f251.webm",
+            "FCTC_S5E7_Taking_Terraform_to_Production_JOOCpha4exY_.f251.webm",
+        ),
+    ];
+    for (original, _) in names {
+        fs::write(dir.path().join(original), original.as_bytes()).unwrap();
+    }
+
+    let output = rehab_isolated(home.path())
+        .arg(dir.path())
+        .output()
+        .expect("run rehab");
+    assert!(output.status.success());
+    for (original, cleaned) in names {
+        assert!(!dir.path().join(original).exists());
+        assert_eq!(
+            fs::read(dir.path().join(cleaned)).unwrap(),
+            original.as_bytes()
+        );
+    }
+}
+
+#[test]
 fn dry_run_leaves_files_untouched_but_prints_plan() {
     let dir = tempdir().unwrap();
     let bad = dir.path().join("bad name.txt");

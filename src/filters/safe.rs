@@ -5,10 +5,11 @@ use super::{DEFAULT_SEPARATOR, Filter};
 
 /// Characters that are awkward or dangerous to type in a POSIX shell and are
 /// therefore replaced by the separator. The path separator `/` is never part
-/// of a single component, but is included defensively.
+/// of a single component, but is included defensively. The fullwidth colon
+/// (U+FF1A) is treated like its ASCII counterpart.
 const PROBLEM_CHARS: &[char] = &[
     ' ', '\t', '\n', '\r', '(', ')', '{', '}', '[', ']', '&', ';', '|', '<', '>', '*', '?', '!',
-    '\'', '"', '$', '`', '\\', ':', '#', '~', '=', ',', '@', '+', '/',
+    '\'', '"', '$', '`', '\\', ':', '：', '#', '~', '=', ',', '@', '+', '/',
 ];
 
 /// Replaces problematic characters with a separator character.
@@ -95,5 +96,11 @@ mod tests {
     #[test]
     fn custom_separator() {
         assert_eq!(SafeFilter::new('-').apply("my file.txt"), "my-file.txt");
+    }
+
+    #[test]
+    fn replaces_ascii_and_fullwidth_colons() {
+        assert_eq!(safe("a:b：c.txt"), "a_b_c.txt");
+        assert_eq!(SafeFilter::new('-').apply("a:b：c.txt"), "a-b-c.txt");
     }
 }
