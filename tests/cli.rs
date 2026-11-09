@@ -86,6 +86,39 @@ fn renames_a_bad_name() {
 }
 
 #[test]
+fn compresses_surrounded_dashes_in_files_and_directories() {
+    for kebab in [false, true] {
+        let home = tempdir().unwrap();
+        let dir = tempdir().unwrap();
+        let folder = dir.path().join("my - folder");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("my_-_file.txt"), b"contents").unwrap();
+        let config = home.path().join("config.toml");
+        fs::write(&config, if kebab {
+            "default = 'custom'\n[sequences.custom]\nfilters = ['safe', 'wipeup']\nseparator = '-'\n"
+        } else { "" }).unwrap();
+        let output = rehab_isolated(home.path())
+            .arg("-f")
+            .arg(&config)
+            .arg("-r")
+            .arg(dir.path())
+            .output()
+            .expect("run rehab");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let target = if kebab {
+            "my-folder/my-file.txt"
+        } else {
+            "my_folder/my_file.txt"
+        };
+        assert_eq!(fs::read(dir.path().join(target)).unwrap(), b"contents");
+    }
+}
+
+#[test]
 fn default_sequence_removes_separator_before_extension() {
     let home = tempdir().unwrap();
     let dir = tempdir().unwrap();

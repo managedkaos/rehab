@@ -8,7 +8,7 @@
 //!
 //! [sequences.myseq]
 //! filters = ["cgi-unescape", "safe", "wipeup", "lower"]
-//! separator = "-"          # optional; passed through for consumers
+//! separator = "-"          # optional; used by safe and wipeup
 //! on_collision = "skip"    # optional; passed through for consumers
 //! ```
 //!
@@ -146,7 +146,33 @@ impl Config {
     pub fn resolve_sequence(&self, name: &str) -> Result<Sequence, ConfigError> {
         if let Some(cfg) = self.sequences.get(name) {
             let refs: Vec<&str> = cfg.filters.iter().map(String::as_str).collect();
-            return Sequence::from_filter_names(name, &refs).map_err(ConfigError::Resolve);
+            let separator = match cfg.separator.as_deref() {
+                None => crate::filters::DEFAULT_SEPARATOR,
+                Some(value) => {
+                    let mut chars = value.chars();
+                    match (chars.next(), chars.next()) {
+                        (Some(c), None) => c,
+                        _ => {
+                            return Err(ConfigError::Resolve(format!(
+                                "sequence {name}: separator must be exactly one character"
+                            )));
+                        }
+                    }
+                }
+            };
+            let filters = refs
+                .into_iter()
+                .map(|filter| {
+                    use crate::filters::{Filter, SafeFilter, WipeupFilter};
+                    match filter {
+                        "safe" => Ok(Box::new(SafeFilter::new(separator)) as Box<dyn Filter>),
+                        "wipeup" => Ok(Box::new(WipeupFilter::new(separator)) as Box<dyn Filter>),
+                        other => sequence::filter_by_name(other),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(ConfigError::Resolve)?;
+            return Ok(Sequence::from_filters(name, filters));
         }
         sequence::resolve(name).map_err(ConfigError::Resolve)
     }
@@ -193,6 +219,23 @@ pub fn default_config_path() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn rejects_empty_or_multicharacter_separator() {
+        for separator in ["", "--"] {
+            let config = Config::from_toml_str(&format!(
+                "[sequences.custom]\nfilters = ['safe', 'wipeup']\nseparator = '{separator}'"
+            ))
+            .unwrap();
+            assert!(
+                config
+                    .resolve_sequence("custom")
+                    .unwrap_err()
+                    .to_string()
+                    .contains("separator must be exactly one character")
+            );
+        }
+    }
 
     #[test]
     fn empty_config_uses_builtin_default() {

@@ -27,7 +27,8 @@ default = "myseq"
 #
 #   safe           replace spaces and shell-problematic characters with `_`,
 #                  including ASCII and fullwidth colons (U+FF1A)
-#   wipeup         collapse repeated separators, remove separator before the
+#   wipeup         compress _-_ to the separator, collapse repeated separators,
+#                  remove separator before the
 #                  last-dot extension only with non-empty base/extension, then
 #                  trim leading/trailing separators and dots (keep collapsed
 #                  name if trimming would empty it); applies to every component
@@ -40,10 +41,8 @@ default = "myseq"
 [sequences.myseq]
 filters = ["cgi-unescape", "safe", "wipeup", "lower"]
 
-# NOTE: `separator` and `on_collision` below are PARSED but NOT YET APPLIED.
-# For now the separator is always `_`, and the collision policy is chosen with
-# the `--on-collision` CLI flag (suffix | skip | overwrite). These keys are
-# reserved for a planned follow-up and are safe to include today.
+# A single character used by safe and wipeup; "-" selects kebab style.
+# on_collision is parsed but not yet applied; use --on-collision instead.
 separator = "-"
 on_collision = "skip"
 

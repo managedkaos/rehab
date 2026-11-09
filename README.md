@@ -61,7 +61,7 @@ Filters:
 | Filter | Description |
 | ------ | ----------- |
 | `safe` | Replace spaces, tabs, line breaks, and shell-problematic characters (such as parentheses, quotes, dollar signs, ASCII `:`, and fullwidth `：` (U+FF1A)) with a separator (default `_`). |
-| `wipeup` | Collapse repeated separators, remove a separator immediately before the file extension (so `file (1).csv` becomes `file_1.csv`), and trim leading/trailing separators and dots, keeping the collapsed name if trimming would leave it empty. |
+| `wipeup` | Compress `_-_` to the configured separator, collapse repeated separators, remove a separator immediately before the file extension (so `file (1).csv` becomes `file_1.csv`), and trim leading/trailing separators and dots, keeping the collapsed name if trimming would leave it empty. |
 | `lower` | Lowercase the name using Unicode-aware lowercasing. |
 | `unicode-clean` | Strip Unicode control and format characters, such as zero-width spaces and bidirectional overrides. |
 | `cgi-unescape` | Decode `%XX` escapes, including multibyte UTF-8 sequences. Leave invalid escapes as written; keep the original name if decoding produces invalid UTF-8. |
@@ -69,6 +69,11 @@ Filters:
 `wipeup` uses only the last dot to define the extension and removes the separator
 only when the base before it and the extension are both non-empty. This string
 transform applies to every path component, including directory names.
+
+For example, `my - file.txt` becomes `my_file.txt`. For kebab style, set
+`separator = "-"` on a sequence containing `safe` and `wipeup`; the result is
+`my-file.txt`. Existing `_-_` patterns are also compressed. Standalone dashes
+are preserved. The separator must be exactly one character.
 
 A *sequence* is an ordered chain of filters applied to each filename component.
 
