@@ -2,7 +2,14 @@ name: Build and Release
 
 # Releases are cut by pushing a semver tag that matches the version in Cargo.toml.
 #   git tag v0.1.0 && git push origin v0.1.0
+# Or run this workflow from the Actions UI and supply an existing release tag.
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag (e.g. v0.1.0)"
+        required: true
+        type: string
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
@@ -15,14 +22,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       # Fail early if the tag and Cargo.toml disagree.
       - name: Verify tag matches Cargo.toml version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          expected="${GITHUB_REF_NAME#v}"
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must have the form v1.2.3"
+            exit 1
+          fi
+          expected="${RELEASE_TAG#v}"
           actual=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           if [ "$actual" != "$expected" ]; then
-            echo "::error::Cargo.toml version ($actual) does not match tag ${GITHUB_REF_NAME}"
+            echo "::error::Cargo.toml version ($actual) does not match tag ${RELEASE_TAG}"
             exit 1
           fi
 
@@ -46,6 +61,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -89,10 +106,12 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release create "${{ github.ref_name }}" \
+          gh release create "$RELEASE_TAG" \
+            --verify-tag \
             --repo "${{ github.repository }}" \
-            --title "${{ github.ref_name }}" \
+            --title "$RELEASE_TAG" \
             --generate-notes \
             rehab-*.tar.gz checksums.txt
 
@@ -103,7 +122,7 @@ jobs:
     uses: managedkaos/homebrew-tap/.github/workflows/update-formula.yml@main
     with:
       formula: rehab
-      tag: ${{ github.ref_name }}
+      tag: ${{ inputs.tag || github.ref_name }}
     secrets:
       TAP_APP_ID: ${{ secrets.TAP_APP_ID }}
       TAP_APP_PRIVATE_KEY: ${{ secrets.TAP_APP_PRIVATE_KEY }}
