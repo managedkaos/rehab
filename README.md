@@ -230,3 +230,11 @@ man ./man/rehab-config.5
 > The four `(7)` reference pages are standard Linux man-pages entries; rehab
 > only cross-references them and does not ship copies. They may not be present
 > by default on macOS.
+
+## Creating a release
+
+Push a version tag such as `v0.1.0` to create a release automatically. The tag
+must match the version in `Cargo.toml`. To release an existing tag manually,
+open **Actions → Build and Release → Run workflow** in GitHub, enter the tag
+in the **tag** field, and run the workflow. The workflow builds that tag,
+publishes the release assets, and updates the Homebrew tap.
