@@ -1,4 +1,5 @@
-//! The `wipeup` filter: collapse runs of the separator into one,
+//! The `wipeup` filter: compress `_-_` to the configured separator,
+//! collapse runs of the separator into one,
 //! remove a separator before the last-dot extension, and trim leading/trailing
 //! separators and dots.
 //!
@@ -34,10 +35,40 @@ impl Filter for WipeupFilter {
     }
 
     fn apply(&self, name: &str) -> String {
+        // Normalize underscore runs joined by surrounded dashes, including
+        // overlapping patterns such as "_-_-_" and repeated underscores.
+        let mut normalized = String::with_capacity(name.len());
+        let mut chars = name.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '_' {
+                normalized.push(c);
+                continue;
+            }
+            let mut underscores = 1;
+            while chars.peek() == Some(&'_') {
+                chars.next();
+                underscores += 1;
+            }
+            let mut surrounded_dash = false;
+            while chars.peek() == Some(&'-') && chars.clone().nth(1) == Some('_') {
+                surrounded_dash = true;
+                chars.next();
+                chars.next();
+                while chars.peek() == Some(&'_') {
+                    chars.next();
+                }
+            }
+            if surrounded_dash {
+                normalized.push(self.separator);
+            } else {
+                normalized.extend(std::iter::repeat_n('_', underscores));
+            }
+        }
+
         // Collapse consecutive separators into a single one.
         let mut collapsed = String::with_capacity(name.len());
         let mut prev_was_sep = false;
-        for c in name.chars() {
+        for c in normalized.chars() {
             if c == self.separator {
                 if !prev_was_sep {
                     collapsed.push(c);
@@ -92,6 +123,25 @@ mod tests {
     #[test]
     fn collapses_repeated_separators() {
         assert_eq!(wipeup("a__b___c"), "a_b_c");
+    }
+
+    #[test]
+    fn compresses_surrounded_dashes() {
+        for (input, expected) in [
+            ("a_-_b.txt", "a_b.txt"),
+            ("a__-__b", "a_b"),
+            ("a_-_-_b", "a_b"),
+            ("café_-_señor", "café_señor"),
+            ("a-b_c", "a-b_c"),
+            ("a_-b", "a_-b"),
+            ("a-_b", "a-_b"),
+        ] {
+            assert_eq!(wipeup(input), expected);
+        }
+        let kebab = WipeupFilter::new('-');
+        assert_eq!(kebab.apply("a_-_b.txt"), "a-b.txt");
+        assert_eq!(kebab.apply("a_-_-_b"), "a-b");
+        assert_eq!(kebab.apply("a---b.txt"), "a-b.txt");
     }
 
     #[test]
